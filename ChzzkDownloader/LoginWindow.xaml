@@ -1,0 +1,54 @@
+<Window x:Class="ChzzkDownloader.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="치지직 로그인" Icon="Assets/streamnest.ico" Width="1000" Height="720" MinWidth="760" MinHeight="560"
+        WindowStartupLocation="CenterOwner" Background="{StaticResource WindowBackgroundBrush}">
+    <Grid Background="{StaticResource WindowBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1" Padding="20,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="서비스에 로그인한 뒤 영상을 재생할 수 있는 상태로 만들어주세요." FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Text="비밀번호는 해당 서비스 페이지에 직접 입력되며 이 앱은 읽거나 저장하지 않습니다." Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,6,0,0" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="보안 연결 · " Foreground="#81E7AD" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock x:Name="CurrentOriginText" Text="주소 확인 중…" Foreground="{StaticResource MutedTextBrush}" FontSize="12" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0">
+                    <Button x:Name="BackButton" Content="뒤로" Style="{StaticResource SecondaryButton}" IsEnabled="False" Click="BackButton_Click" />
+                    <Button x:Name="RefreshButton" Content="새로고침" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" IsEnabled="False" Click="RefreshButton_Click" />
+                    <Button x:Name="HomeButton" Content="영상 페이지" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" IsEnabled="False" Click="HomeButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Background="White">
+            <TextBlock x:Name="BrowserLoadingText" Text="로그인 창을 준비하는 중…" Foreground="#4A5968" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <wv2:WebView2 x:Name="LoginWebView" NavigationCompleted="LoginWebView_NavigationCompleted" />
+        </Grid>
+
+        <Border Grid.Row="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,1,0,0" Padding="18,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LoginStatusText" Text="로그인과 필요한 본인 인증을 마친 뒤 세션을 확인하세요." Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0" />
+                <Button Grid.Column="1" Content="저장된 세션 삭제" Style="{StaticResource DangerButton}" Margin="10,0,0,0" Click="ClearSessionButton_Click" />
+                <Button x:Name="LoginCompleteButton" Grid.Column="2" Content="세션 확인" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" IsEnabled="False" Click="LoginCompleteButton_Click" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
