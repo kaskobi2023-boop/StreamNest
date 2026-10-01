@@ -42,15 +42,20 @@ public sealed partial class YtDlpService
                      "http_headers", "vcodec", "acodec", "width", "height", "fps", "tbr", "filesize",
                      "has_drm", "is_live", "live_status", "extractor", "extractor_key", "fragment_base_url", "fragments" })
             if (entry.TryGetProperty(key, out var value)) snapshot[key] = JsonNode.Parse(value.GetRawText());
+        if (snapshot["formats"] is JsonArray streamFormats)
+            for (var index = streamFormats.Count - 1; index >= 0; index--)
+                if (streamFormats[index] is not JsonObject) streamFormats.RemoveAt(index);
         RemoveCredentials(snapshot);
         return new WebDownloadSnapshot
         {
             PageUrl = pageUrl, VideoId = ReadString(entry, "id") ?? string.Empty,
             InfoJson = snapshot.ToJsonString(), DurationSeconds = ReadDouble(entry, "duration"),
             ExpectsAudio = entry.TryGetProperty("formats", out var formats) && formats.ValueKind == JsonValueKind.Array
-                ? formats.EnumerateArray().Any(f => ReadString(f, "acodec") is { Length: > 0 } codec && codec != "none")
+                ? formats.EnumerateArray().Any(f => f.ValueKind == JsonValueKind.Object && !ReadBoolean(f, "has_drm") &&
+                    ReadString(f, "acodec") is { Length: > 0 } codec && codec != "none")
                 : ReadString(entry, "acodec") is { Length: > 0 } audio && audio != "none",
-            IncludePagePathInReferer = includePagePathInReferer
+            IncludePagePathInReferer = includePagePathInReferer,
+            BrowserCaptured = ReadBoolean(entry, "streamnest_browser")
         };
 
         static void RemoveCredentials(JsonNode? node)
@@ -71,8 +76,12 @@ public sealed partial class YtDlpService
 
     public async Task<string?> DownloadAsync(string url, string outputFolder, VideoFormatOption format,
         IReadOnlyCollection<BrowserCookie>? cookies, IProgress<DownloadProgressInfo>? progress,
-        Action<string>? log, CancellationToken cancellationToken = default)
+        Action<string>? log, CancellationToken cancellationToken = default,
+        Action<IReadOnlyList<string>>? verificationWarnings = null)
     {
+        if (format.SoopPartIds.Count > 0 && (format.IsGeneralWeb ||
+            !VideoUrlService.TryParse(url, out var soopUrl) || soopUrl.Source != VideoSource.Soop))
+            throw new ArgumentException("SOOP 분석 결과는 같은 서비스의 영상 주소에서만 사용할 수 있습니다.");
         if (format.WebSnapshot is { } snapshot && (!format.IsGeneralWeb ||
             snapshot.PageUrl != url || snapshot.VideoId != format.ExpectedVideoId))
             throw new ArgumentException("분석한 페이지와 선택한 영상이 일치하지 않습니다. 다시 분석해주세요.");
@@ -82,14 +91,15 @@ public sealed partial class YtDlpService
         try
         {
             if (format.WebSnapshot is not null) log?.Invoke("분석한 스트림과 요청 정보를 재사용합니다.");
-            return await DownloadAttemptAsync(url, outputFolder, format, partialDirectory, cookies, progress, log, cancellationToken);
+            return await DownloadAttemptAsync(url, outputFolder, format, partialDirectory, cookies, progress, log, cancellationToken, verificationWarnings);
         }
         catch (YtDlpException exception) when (format.IsGeneralWeb && format.WebSnapshot is not null &&
                                               IsRefreshableStreamError(exception.Message))
         {
             cancellationToken.ThrowIfCancellationRequested();
             log?.Invoke("스트림 주소가 만료되었거나 서버에서 거부했습니다. 같은 영상인지 확인하고 한 번 갱신합니다.");
-            var refreshed = await AnalyzeWebAsync(url, cancellationToken, format.WebSnapshot.IncludePagePathInReferer);
+            var refreshed = await AnalyzeWebAsync(url, cancellationToken, format.WebSnapshot.IncludePagePathInReferer,
+                format.WebSnapshot.BrowserCaptured);
             var selected = refreshed.SingleOrDefault(item => item.Video.Id == format.ExpectedVideoId);
             if (selected is null)
                 throw new YtDlpException("갱신된 페이지에서 같은 영상을 확인하지 못했습니다. 다른 영상으로 전환하지 않았습니다. 다시 분석해주세요.");
@@ -99,7 +109,7 @@ public sealed partial class YtDlpService
             // Deliberately no recursive retry. Genuine permission failures and
             // missing fragments stop after this bounded refresh.
             return await DownloadAttemptAsync(url, outputFolder, selected.SelectFormat(quality), partialDirectory, cookies,
-                progress, log, cancellationToken);
+                progress, log, cancellationToken, verificationWarnings);
         }
     }
 

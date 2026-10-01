@@ -7,7 +7,7 @@ namespace ChzzkDownloader.IntegrationTests;
 
 internal static class WebView2ProfileHarness
 {
-    public static Task<T> UseAsync<T>(Func<CoreWebView2, Task<T>> action) => StaThreadRunner.RunAsync(async () =>
+    public static Task<T> UseAsync<T>(Func<CoreWebView2, Task<T>> action, VideoSource? source = null) => StaThreadRunner.RunAsync(async () =>
     {
         using var webView = new WebView2();
         var host = new Window
@@ -27,7 +27,7 @@ internal static class WebView2ProfileHarness
         try
         {
             host.Show();
-            var environment = await WebViewSessionService.CreateEnvironmentAsync();
+            var environment = await WebViewSessionService.CreateEnvironmentAsync(source);
             await webView.EnsureCoreWebView2Async(environment);
             return await action(webView.CoreWebView2);
         }

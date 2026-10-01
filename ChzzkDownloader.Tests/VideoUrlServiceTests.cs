@@ -28,7 +28,7 @@ public sealed class VideoUrlServiceTests
     [InlineData("https://youtu.be/")]
     [InlineData("https://example.com/watch?v=dQw4w9WgXcQ")]
     [InlineData("https://user:secret@www.youtube.com/watch?v=dQw4w9WgXcQ")]
-    [InlineData("https://user:secret@chzzk.naver.com/video/14471813")]
+    [InlineData("https://user:secret@chzzk.naver.com/video/12345678")]
     public void TryParse_RejectsUnsupportedOrUnsafeUrls(string url)
     {
         Assert.False(VideoUrlService.TryParse(url, out _));
@@ -38,11 +38,11 @@ public sealed class VideoUrlServiceTests
     public void TryParse_StillRecognizesChzzkUrls()
     {
         Assert.True(VideoUrlService.TryParse(
-            "https://chzzk.naver.com/video/14471813?from=share",
+            "https://chzzk.naver.com/video/12345678?from=share",
             out var info));
 
         Assert.Equal(VideoSource.Chzzk, info.Source);
-        Assert.Equal("14471813", info.VideoId);
+        Assert.Equal("12345678", info.VideoId);
     }
 
     [Fact]
@@ -54,4 +54,27 @@ public sealed class VideoUrlServiceTests
 
         Assert.Equal("https://www.youtube.com/watch?v=dQw4w9WgXcQ", info.CanonicalUrl);
     }
+
+    [Theory]
+    [InlineData("https://chzzk.naver.com/clips/AbCdEf1234")]
+    [InlineData("  https://chzzk.naver.com/clips/AbCdEf1234/?from=share#clip\u00a0")]
+    public void ChzzkClipKeepsCaseAndUsesThePlatformTab(string url)
+    {
+        Assert.True(VideoUrlService.TryParse(url, out var info));
+        Assert.Equal(VideoSource.Chzzk, info.Source);
+        Assert.Equal("AbCdEf1234", info.VideoId);
+        Assert.Equal("https://chzzk.naver.com/clips/AbCdEf1234", info.CanonicalUrl);
+        Assert.False(ChzzkProbeService.TryGetVideoId(info.CanonicalUrl, out _));
+        Assert.False(WebVideoUrlService.TryParse(url, out _));
+    }
+
+    [Theory]
+    [InlineData("https://chzzk.naver.com/clips/")]
+    [InlineData("https://chzzk.naver.com/clips/AbCdEf1234/extra")]
+    [InlineData("https://chzzk.naver.com/clips/AbCdEf1234%2Fextra")]
+    [InlineData("https://chzzk.naver.com.evil.test/clips/AbCdEf1234")]
+    [InlineData("https://user:pass@chzzk.naver.com/clips/AbCdEf1234")]
+    [InlineData("http://chzzk.naver.com/clips/AbCdEf1234")]
+    [InlineData("https://chzzk.naver.com:444/clips/AbCdEf1234")]
+    public void RejectsUnsafeClipUrls(string url) => Assert.False(VideoUrlService.TryParse(url, out _));
 }

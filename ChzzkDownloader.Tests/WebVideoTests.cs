@@ -30,7 +30,7 @@ public sealed class WebVideoTests
     [InlineData("https://[::1]/video.mp4")]
     [InlineData("https://[::ffff:127.0.0.1]/video.mp4")]
     [InlineData("https://www.youtube.com/watch?v=dQw4w9WgXcQ")]
-    [InlineData("https://chzzk.naver.com/video/14471813")]
+    [InlineData("https://chzzk.naver.com/video/12345678")]
     public void RejectsUnsafeOrDedicatedPlatformInputs(string url) =>
         Assert.False(WebVideoUrlService.TryParse(url, out _));
 

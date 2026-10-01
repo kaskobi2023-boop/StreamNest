@@ -6,6 +6,9 @@ public sealed class YtDlpErrorClassifierTests
 {
     [Theory]
     [InlineData("Sign in to confirm your age", YtDlpErrorKind.Authentication)]
+    [InlineData("This VOD is for subscribers only", YtDlpErrorKind.Authentication)]
+    [InlineData("This VOD is private", YtDlpErrorKind.Unavailable)]
+    [InlineData("The VOD does not exist", YtDlpErrorKind.Unavailable)]
     [InlineData("This video is available to members of this channel", YtDlpErrorKind.Authentication)]
     [InlineData("Sign in to confirm you're not a bot", YtDlpErrorKind.Authentication)]
     [InlineData("No space left on device", YtDlpErrorKind.Storage)]

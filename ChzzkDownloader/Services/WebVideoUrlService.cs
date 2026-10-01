@@ -15,7 +15,9 @@ public static partial class WebVideoUrlService
             !string.IsNullOrEmpty(parsed.UserInfo))
             return false;
         var host = parsed.IdnHost.TrimEnd('.');
-        if (VideoUrlService.IsYouTubeHost(host) || host.Equals("chzzk.naver.com", StringComparison.OrdinalIgnoreCase))
+        if (VideoUrlService.IsYouTubeHost(host) || VideoUrlService.IsSoopVodHost(host) ||
+            VideoUrlService.IsRPlayHost(host) ||
+            host.Equals("chzzk.naver.com", StringComparison.OrdinalIgnoreCase))
             return false;
         if (IPAddress.TryParse(host.Trim('[', ']'), out var address))
         {
@@ -33,7 +35,7 @@ public static partial class WebVideoUrlService
     public static async Task<Uri> ValidateAsync(string input, CancellationToken token)
     {
         if (!TryParse(input, out var uri))
-            throw new ArgumentException("일반 영상 탭에는 공개 HTTPS 웹페이지·MP4·HLS 주소를 입력해주세요. 치지직·YouTube는 전용 탭을 사용해주세요.");
+            throw new ArgumentException("일반 영상 탭에는 공개 HTTPS 웹페이지·MP4·HLS 주소를 입력해주세요. 지원 서비스 영상은 전용 탭을 사용해주세요.");
         var addresses = await Dns.GetHostAddressesAsync(uri.DnsSafeHost, token);
         if (addresses.Length == 0 || addresses.Any(address => !IsPublicAddress(address)))
             throw new ArgumentException("로컬·사설 네트워크 주소는 일반 영상 탭에서 사용할 수 없습니다.");

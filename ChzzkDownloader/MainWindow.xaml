@@ -83,15 +83,20 @@
                             </Setter>
                         </Style>
                     </TabControl.Resources>
-                    <TabItem Header="치지직 · YouTube" AutomationProperties.Name="치지직 · YouTube 탭" />
+                    <TabItem Header="치지직 · YouTube · SOOP" AutomationProperties.Name="치지직 · YouTube · SOOP 탭" />
                     <TabItem Header="일반 영상" AutomationProperties.Name="일반 영상 탭" />
                 </TabControl>
-                <TextBlock x:Name="ModeDescriptionText" Text="기존 치지직·YouTube 다운로드와 로그인 기능을 사용합니다."
+                <TextBlock x:Name="ModeDescriptionText" Text="치지직 클립·SOOP 캐치도 지원합니다. 제한 영상은 직접 로그인 후 확인합니다."
                            Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap" />
                 <CheckBox x:Name="WebRefererPathCheckBox" Visibility="Collapsed" Margin="0,10,0,0"
                           Foreground="{StaticResource MutedTextBrush}" FontSize="12"
                           Content="HLS 호환 요청: 다른 영상 서버에 페이지 경로 전달 (쿼리·쿠키 제외)"
                           ToolTip="HLS 주소를 찾았지만 서버에서 거부할 때 선택 후 다시 분석하세요. 다른 서버에 Referer의 페이지 경로를 전달합니다. 주소의 쿼리와 로그인 쿠키는 전달하지 않습니다."
+                          Checked="WebRefererPath_Changed" Unchecked="WebRefererPath_Changed" />
+                <CheckBox x:Name="WebBrowserCheckBox" Visibility="Collapsed" Margin="0,10,0,0"
+                          Foreground="{StaticResource MutedTextBrush}" FontSize="12"
+                          Content="브라우저로 먼저 분석 (플레이어가 있는 페이지)"
+                          ToolTip="페이지를 실제로 렌더링하여 영상 요청을 찾습니다. 선택하지 않아도 기본 분석 실패 시 자동으로 시도합니다."
                           Checked="WebRefererPath_Changed" Unchecked="WebRefererPath_Changed" />
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
                 <Border Background="#102A20" BorderBrush="#245E3C" BorderThickness="1" CornerRadius="12" Padding="10,5"
@@ -108,7 +113,7 @@
                         <TextBlock Text="YouTube" Foreground="#FF9DAB" FontSize="11" FontWeight="SemiBold" />
                     </StackPanel>
                 </Border>
-                <TextBlock Text="두 플랫폼 · 하나의 저장 흐름" Foreground="{StaticResource MutedTextBrush}" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" />
+                <TextBlock Text="세 플랫폼 · 하나의 저장 흐름" Foreground="{StaticResource MutedTextBrush}" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" />
                 </StackPanel>
             </StackPanel>
         </Grid>
@@ -121,7 +126,7 @@
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                     <TextBlock Text="영상 주소" FontSize="13" FontWeight="SemiBold" />
-                    <TextBlock x:Name="UrlKindText" Text="CHZZK / YouTube" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="9,1,0,0" />
+                    <TextBlock x:Name="UrlKindText" Text="CHZZK / YouTube / SOOP" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="9,1,0,0" />
                 </StackPanel>
                 <Grid Grid.Row="1">
                     <Grid.ColumnDefinitions>
@@ -131,10 +136,10 @@
                     </Grid.ColumnDefinitions>
                     <Grid>
                         <TextBox x:Name="UrlTextBox" FontSize="14" MinHeight="46" VerticalContentAlignment="Center"
-                                 ToolTip="예: 치지직 https://chzzk.naver.com/video/14471813 또는 YouTube https://youtu.be/dQw4w9WgXcQ"
-                                 AutomationProperties.Name="치지직 또는 YouTube 영상 주소"
+                                 ToolTip="치지직 다시보기·클립, YouTube 개별 영상 또는 SOOP VOD·캐치"
+                                 AutomationProperties.Name="치지직·YouTube·SOOP 영상 주소"
                                  KeyDown="UrlTextBox_KeyDown" TextChanged="UrlTextBox_TextChanged" />
-                        <TextBlock x:Name="UrlPlaceholderText" Text="치지직 또는 YouTube 영상 주소를 붙여넣으세요"
+                        <TextBlock x:Name="UrlPlaceholderText" Text="치지직·YouTube·SOOP 영상 주소를 붙여넣으세요"
                                    Foreground="{StaticResource MutedTextBrush}" Margin="13,0,0,0"
                                    VerticalAlignment="Center" IsHitTestVisible="False">
                             <TextBlock.Style>
@@ -149,7 +154,10 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Grid>
-                    <Button x:Name="PasteButton" Grid.Column="1" Content="붙여넣기" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Click="PasteButton_Click" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button x:Name="ClearUrlButton" Content="초기화" Visibility="Collapsed" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0" Click="ClearUrlButton_Click" />
+                        <Button x:Name="PasteButton" Content="붙여넣기" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Click="PasteButton_Click" />
+                    </StackPanel>
                     <Button x:Name="AnalyzeButton" Grid.Column="2" Content="영상 확인" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
                             IsEnabled="False" Click="AnalyzeButton_Click" />
                 </Grid>
@@ -218,6 +226,8 @@
                                TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                 </StackPanel>
                 <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Margin="0,16,0,0">
+                    <Button x:Name="PlayLastButton" Content="재생" Visibility="Collapsed" IsEnabled="False" Style="{StaticResource SecondaryButton}"
+                            ToolTip="이번에 다운로드한 파일을 기본 동영상 앱으로 재생합니다." Margin="0,0,8,0" Click="PlayLastButton_Click" />
                     <Button x:Name="OpenFolderButton" Content="저장 폴더 열기" Style="{StaticResource SecondaryButton}"
                             FontSize="14" ToolTip="현재 지정된 저장 폴더를 엽니다."
                             AutomationProperties.Name="현재 지정된 저장 폴더 열기" Click="OpenFolderButton_Click" />
@@ -235,8 +245,11 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <Button Content="기록 복사" Style="{StaticResource SecondaryButton}" Padding="12,6"
-                            HorizontalAlignment="Right" AutomationProperties.Name="작업 기록 복사" Click="CopyLogButton_Click" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="기록 비우기" Style="{StaticResource SecondaryButton}" Padding="12,6" Margin="0,0,8,0" Click="ClearLogButton_Click" />
+                        <Button Content="기록 복사" Style="{StaticResource SecondaryButton}" Padding="12,6"
+                                AutomationProperties.Name="작업 기록 복사" Click="CopyLogButton_Click" />
+                    </StackPanel>
                     <TextBox x:Name="LogTextBox" Grid.Row="1" Height="150" Margin="0,8,0,0" Padding="0" Background="Transparent" BorderThickness="0"
                              IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                              FontFamily="Cascadia Mono, Consolas" FontSize="11" AutomationProperties.Name="작업 기록 내용" />

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -10,8 +10,8 @@
     <AssemblyTitle>StreamNest Downloader</AssemblyTitle>
     <RootNamespace>ChzzkDownloader</RootNamespace>
     <Product>StreamNest Downloader</Product>
-    <Description>CHZZK와 YouTube 영상을 저장하는 Windows 다운로더</Description>
-    <Version>0.6.6</Version>
+    <Description>CHZZK·YouTube·SOOP 영상을 저장하는 Windows 다운로더</Description>
+    <Version>0.7.7</Version>
     <ApplicationIcon>Assets\streamnest.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

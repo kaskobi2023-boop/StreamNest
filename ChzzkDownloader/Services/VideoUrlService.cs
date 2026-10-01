@@ -5,7 +5,9 @@ namespace ChzzkDownloader.Services;
 public enum VideoSource
 {
     Chzzk,
-    YouTube
+    YouTube,
+    Soop,
+    RPlay
 }
 
 public sealed record VideoUrlInfo(VideoSource Source, string VideoId, string CanonicalUrl);
@@ -44,6 +46,33 @@ public static partial class VideoUrlService
             return true;
         }
 
+        if (IsSoopVodHost(uri.IdnHost))
+        {
+            var match = SoopVideoPathRegex().Match(uri.AbsolutePath);
+            if (!match.Success) return false;
+            var id = match.Groups[1].Value;
+            info = new VideoUrlInfo(VideoSource.Soop, id, $"https://vod.sooplive.com/player/{id}");
+            return true;
+        }
+
+        if (uri.IdnHost.Equals("chzzk.naver.com", StringComparison.OrdinalIgnoreCase))
+        {
+            var match = ChzzkClipPathRegex().Match(uri.AbsolutePath);
+            if (!match.Success) return false;
+            var id = match.Groups[1].Value;
+            info = new VideoUrlInfo(VideoSource.Chzzk, id, $"https://chzzk.naver.com/clips/{id}");
+            return true;
+        }
+
+        if (IsRPlayHost(uri.IdnHost))
+        {
+            var match = RPlayVideoPathRegex().Match(uri.AbsolutePath);
+            if (!match.Success) return false;
+            var id = match.Groups[1].Value;
+            info = new VideoUrlInfo(VideoSource.RPlay, id, $"https://rplay.live/play/{id}");
+            return true;
+        }
+
         if (!TryGetYouTubeVideoId(uri, out var youtubeVideoId))
             return false;
 
@@ -56,6 +85,34 @@ public static partial class VideoUrlService
 
     public static bool IsYouTubeHost(string host) =>
         !string.IsNullOrWhiteSpace(host) && SupportedYouTubeHosts.Contains(host);
+
+    public static bool IsSoopVodHost(string host) =>
+        host.Equals("vod.sooplive.com", StringComparison.OrdinalIgnoreCase) ||
+        host.Equals("vod.afreecatv.com", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsRPlayHost(string host) =>
+        host.Equals("rplay.live", StringComparison.OrdinalIgnoreCase) ||
+        host.Equals("www.rplay.live", StringComparison.OrdinalIgnoreCase);
+
+    public static string GetDisplayName(VideoSource source) => source switch
+    {
+        VideoSource.Chzzk => "치지직",
+        VideoSource.YouTube => "YouTube",
+        VideoSource.Soop => "SOOP(숲)",
+        VideoSource.RPlay => "웹 영상",
+        _ => throw new ArgumentOutOfRangeException(nameof(source))
+    };
+
+    // A Catch is the same individual VOD number; the suffix selects the website's
+    // short-video UI. Canonicalize to the existing single-video extraction path.
+    [GeneratedRegex("^/(?:player|PLAYER/STATION)/([0-9]+)(?:/catch)?/?$", RegexOptions.IgnoreCase)]
+    private static partial Regex SoopVideoPathRegex();
+
+    [GeneratedRegex("^/clips/([A-Za-z0-9_-]{6,80})/?$")]
+    private static partial Regex ChzzkClipPathRegex();
+
+    [GeneratedRegex("^/play/([a-zA-Z0-9_-]+)/?$", RegexOptions.IgnoreCase)]
+    private static partial Regex RPlayVideoPathRegex();
 
     private static bool TryGetYouTubeVideoId(Uri uri, out string videoId)
     {

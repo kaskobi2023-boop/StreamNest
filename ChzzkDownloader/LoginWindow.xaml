@@ -46,7 +46,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="LoginStatusText" Text="로그인과 필요한 본인 인증을 마친 뒤 세션을 확인하세요." Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0" />
-                <Button Grid.Column="1" Content="저장된 세션 삭제" Style="{StaticResource DangerButton}" Margin="10,0,0,0" Click="ClearSessionButton_Click" />
+                <Button x:Name="ClearSessionButton" Grid.Column="1" Content="저장된 세션 삭제" Style="{StaticResource DangerButton}" Margin="10,0,0,0" Click="ClearSessionButton_Click" />
                 <Button x:Name="LoginCompleteButton" Grid.Column="2" Content="세션 확인" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" IsEnabled="False" Click="LoginCompleteButton_Click" />
             </Grid>
         </Border>

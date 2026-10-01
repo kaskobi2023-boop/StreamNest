@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using ChzzkDownloader.Models;
 
 namespace ChzzkDownloader.Services;
 
@@ -29,43 +30,105 @@ internal static class MediaVerificationService
         return true;
     }
 
-    public static async Task VerifyAsync(string path, double? expectedDuration, int? expectedHeight,
+    public static Task<IReadOnlyList<string>> VerifyAsync(string path, double? expectedDuration, int? expectedHeight,
         bool expectsAudio, CancellationToken token)
+        => VerifyAsync(path, MediaVerificationExpectation.ForVideo(expectedDuration, expectedHeight, expectsAudio), token);
+
+    public static async Task<IReadOnlyList<string>> VerifyAsync(string path, MediaVerificationExpectation expectation,
+        CancellationToken token)
     {
-        var probe = await RunAsync(ToolLocator.FfprobePath,
-            ["-v", "error", "-show_entries", "format=duration:stream=codec_type,height,duration", "-of", "json", path], token);
+        // Fast completion check: inspect container/stream metadata only. Never launch
+        // FFmpeg or scan/decode the whole file here; cost must not scale with playback length.
+        token.ThrowIfCancellationRequested();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        (int Code, string Output, string Error) probe;
+        try
+        {
+            probe = await RunAsync(ToolLocator.FfprobePath,
+                ["-v", "error", "-show_entries", "format=duration,format_name:stream=codec_type,codec_name,height,duration", "-of", "json", path], timeout.Token);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new YtDlpException("파일 정보 확인 시간이 초과되었습니다. 저장 장치 상태를 확인하고 다시 시도해주세요.");
+        }
         if (probe.Code != 0) throw new YtDlpException("다운로드 파일의 미디어 정보를 읽지 못했습니다. 완료 처리하지 않았습니다.");
         using var document = JsonDocument.Parse(probe.Output);
-        ValidateMetadata(document.RootElement, expectedDuration, expectedHeight, expectsAudio);
-        // Decode, rather than stream-copy, so corrupt packets cannot silently
-        // pass the completion gate. The user may cancel this phase as well.
-        var decoded = await RunAsync(ToolLocator.FfmpegPath,
-            ["-v", "error", "-xerror", "-nostdin", "-i", path, "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"], token);
-        if (decoded.Code != 0 || !string.IsNullOrWhiteSpace(decoded.Error))
-            throw new YtDlpException("다운로드 파일 전체 검사에서 손상이 발견되었습니다. 완료 처리하지 않았습니다.");
+        var warnings = ValidateMetadata(document.RootElement, expectation).ToList();
+        if (!string.IsNullOrWhiteSpace(probe.Error))
+            warnings.Add("파일 정보를 읽는 중 오류가 보고되었습니다. 저장된 영상의 재생 상태를 확인해주세요.");
+        token.ThrowIfCancellationRequested();
+        return warnings;
     }
 
-    internal static void ValidateMetadata(JsonElement root, double? expectedDuration, int? expectedHeight, bool expectsAudio)
+    internal static IReadOnlyList<string> ValidateMetadata(JsonElement root, double? expectedDuration, int? expectedHeight, bool expectsAudio)
+        => ValidateMetadata(root, MediaVerificationExpectation.ForVideo(expectedDuration, expectedHeight, expectsAudio));
+
+    internal static IReadOnlyList<string> ValidateMetadata(JsonElement root, MediaVerificationExpectation expectation)
     {
         if (!root.TryGetProperty("streams", out var streams) || streams.ValueKind != JsonValueKind.Array)
-            throw new YtDlpException("검증 실패: 영상 스트림이 없습니다.");
-        var video = streams.EnumerateArray().FirstOrDefault(stream => stream.TryGetProperty("codec_type", out var type) && type.GetString() == "video");
-        if (video.ValueKind == JsonValueKind.Undefined) throw new YtDlpException("검증 실패: 영상 스트림이 없습니다.");
-        if (expectedHeight is > 0 && (!video.TryGetProperty("height", out var height) || height.GetInt32() != expectedHeight))
-            throw new YtDlpException("검증 실패: 저장된 영상의 화질이 선택한 화질과 다릅니다.");
-        if (expectsAudio && !streams.EnumerateArray().Any(stream => stream.TryGetProperty("codec_type", out var type) && type.GetString() == "audio"))
-            throw new YtDlpException("검증 실패: 필요한 음성 스트림이 누락되었습니다.");
-        // Compare video metadata against the video track, not the container's
-        // longest audio/edit-list span. That span can mask a short video or
-        // falsely exceed the tolerance because of audio alignment padding.
-        var seconds = ReadDuration(video);
+            throw new YtDlpException(expectation.Kind == MediaKind.AudioOnly ? "검증 실패: 음성 스트림이 없습니다." : "검증 실패: 영상 스트림이 없습니다.");
+
+        double? seconds = null;
+        if (expectation.Kind == MediaKind.AudioOnly)
+        {
+            var hasVideo = streams.EnumerateArray().Any(stream => stream.TryGetProperty("codec_type", out var type) &&
+                string.Equals(type.GetString(), "video", StringComparison.OrdinalIgnoreCase));
+            if (hasVideo)
+                throw new YtDlpException("검증 실패: 오디오 전용 파일에 영상 스트림이 포함되어 있습니다. 완료 처리하지 않았습니다.");
+
+            var audio = streams.EnumerateArray().FirstOrDefault(stream => stream.TryGetProperty("codec_type", out var type) &&
+                string.Equals(type.GetString(), "audio", StringComparison.OrdinalIgnoreCase));
+            if (audio.ValueKind == JsonValueKind.Undefined) throw new YtDlpException("검증 실패: 필요한 음성 스트림이 누락되었습니다.");
+
+            if (!string.IsNullOrWhiteSpace(expectation.ExpectedContainer))
+            {
+                if (!root.TryGetProperty("format", out var formatElement) ||
+                    !formatElement.TryGetProperty("format_name", out var formatNameProp))
+                {
+                    throw new YtDlpException("검증 실패: 오디오 파일의 컨테이너 포맷을 확인할 수 없습니다. 완료 처리하지 않았습니다.");
+                }
+
+                var formatName = formatNameProp.GetString() ?? string.Empty;
+                var validContainers = expectation.ExpectedContainer.ToLowerInvariant() switch
+                {
+                    "m4a" or "mp4" => ["mp4", "m4a", "mov", "3gp", "3g2", "mj2"],
+                    "mp3" => ["mp3"],
+                    "aac" => ["aac", "adts"],
+                    "flac" => ["flac"],
+                    "wav" => ["wav"],
+                    _ => new[] { expectation.ExpectedContainer.ToLowerInvariant() }
+                };
+
+                var formatParts = formatName.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                if (!formatParts.Any(part => validContainers.Contains(part, StringComparer.OrdinalIgnoreCase)))
+                {
+                    throw new YtDlpException($"검증 실패: 저장된 파일이 유효한 {expectation.ExpectedContainer} 컨테이너가 아닙니다 (감지된 포맷: {formatName}). 완료 처리하지 않았습니다.");
+                }
+            }
+
+            seconds = ReadDuration(audio);
+        }
+        else
+        {
+            var video = streams.EnumerateArray().FirstOrDefault(stream => stream.TryGetProperty("codec_type", out var type) && type.GetString() == "video");
+            if (video.ValueKind == JsonValueKind.Undefined) throw new YtDlpException("검증 실패: 영상 스트림이 없습니다.");
+            if (expectation.ExpectedHeight is > 0 && (!video.TryGetProperty("height", out var height) || height.GetInt32() != expectation.ExpectedHeight))
+                throw new YtDlpException("검증 실패: 저장된 영상의 화질이 선택한 화질과 다릅니다.");
+            if (expectation.ExpectsAudio && !streams.EnumerateArray().Any(stream => stream.TryGetProperty("codec_type", out var type) && type.GetString() == "audio"))
+                throw new YtDlpException("검증 실패: 필요한 음성 스트림이 누락되었습니다.");
+            seconds = ReadDuration(video);
+        }
+
         if (seconds is null && root.TryGetProperty("format", out var format)) seconds = ReadDuration(format);
         if (seconds is null)
-            throw new YtDlpException("검증 실패: 재생 길이를 확인하지 못했습니다.");
-        // Small muxing/rounding differences are allowed, not missing sections.
+            return ["재생 길이를 확인하지 못했습니다. 파일을 저장했지만 전체 분량 여부는 재생으로 확인해주세요."];
+
+        var expectedDuration = expectation.ExpectedDurationSeconds;
         if (expectedDuration is > 0 && double.IsFinite(expectedDuration.Value) &&
-            Math.Abs(seconds.Value - expectedDuration.Value) > Math.Max(0.5, Math.Min(3, expectedDuration.Value * 0.01)))
-            throw new YtDlpException("검증 실패: 저장된 파일의 길이가 분석한 영상과 다릅니다. 조각 누락 여부를 확인해주세요.");
+            Math.Abs(seconds.Value - expectedDuration.Value) > Math.Max(0.5, Math.Min(30, expectedDuration.Value * 0.01)))
+            return [$"길이 차이: 예상 {expectedDuration.Value:0.###}초 / 저장 {seconds.Value:0.###}초. 메타데이터 오차 또는 일부 누락 가능성이 있으니 전체 분량을 확인해주세요."];
+        return [];
     }
 
     private static double? ReadDuration(JsonElement element) =>

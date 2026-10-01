@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ChzzkDownloader\ChzzkDownloader.csproj" />
+    <Content Include="..\ChzzkDownloader\App.xaml" Link="Fixtures\AppStyles.xaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

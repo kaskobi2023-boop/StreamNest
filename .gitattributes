@@ -1,0 +1,2 @@
+# Preserve release source bytes so SOURCE-FILES.sha256 matches every checkout.
+* -text

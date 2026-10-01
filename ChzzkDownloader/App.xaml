@@ -15,6 +15,40 @@
         <SolidColorBrush x:Key="MutedTextBrush" Color="#96A7B8" />
         <SolidColorBrush x:Key="InputBrush" Color="#0F1620" />
 
+        <!-- ToolTips live in a popup and otherwise keep the Windows light
+             background while our implicit TextBlock style makes text white. -->
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="{StaticResource InputBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontFamily" Value="Segoe UI, Malgun Gothic" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="MaxWidth" Value="480" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}" CornerRadius="6"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"
+                                              RecognizesAccessKey="False">
+                                <ContentPresenter.Resources>
+                                    <DataTemplate xmlns:sys="clr-namespace:System;assembly=System.Runtime" DataType="{x:Type sys:String}">
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource TextBrush}" />
+                                    </DataTemplate>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="Window">
             <Setter Property="Background" Value="{StaticResource WindowBackgroundBrush}" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />

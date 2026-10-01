@@ -5,8 +5,8 @@ namespace ChzzkDownloader.Tests;
 public sealed class ChzzkProbeServiceTests
 {
     [Theory]
-    [InlineData("https://chzzk.naver.com/video/13940682", "13940682")]
-    [InlineData("https://chzzk.naver.com/video/14471813?from=share", "14471813")]
+    [InlineData("https://chzzk.naver.com/video/87654321", "87654321")]
+    [InlineData("https://chzzk.naver.com/video/12345678?from=share", "12345678")]
     public void TryGetVideoId_AcceptsExpectedUrls(string url, string expectedId)
     {
         Assert.True(ChzzkProbeService.TryGetVideoId(url, out var videoId));
@@ -14,12 +14,12 @@ public sealed class ChzzkProbeServiceTests
     }
 
     [Theory]
-    [InlineData("https://example.com/video/13940682")]
-    [InlineData("https://chzzk.naver.com.evil.example/video/13940682")]
+    [InlineData("https://example.com/video/87654321")]
+    [InlineData("https://chzzk.naver.com.evil.example/video/87654321")]
     [InlineData("http://chzzk.naver.com/video/42/")]
     [InlineData("https://chzzk.naver.com:444/video/42/")]
-    [InlineData("ftp://chzzk.naver.com/video/13940682")]
-    [InlineData("https://chzzk.naver.com/clips/13940682")]
+    [InlineData("ftp://chzzk.naver.com/video/87654321")]
+    [InlineData("https://chzzk.naver.com/clips/87654321")]
     [InlineData("not a url")]
     public void TryGetVideoId_RejectsUnexpectedUrls(string url)
     {

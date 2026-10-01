@@ -14,7 +14,9 @@ public sealed class SessionCookieStore
     public void Set(VideoSource source, IReadOnlyList<BrowserCookie> cookies)
     {
         ArgumentNullException.ThrowIfNull(cookies);
-        _cookies[source] = cookies;
+        _cookies[source] = cookies
+            .Where(c => LoginSecurityPolicy.IsAllowedCookieDomain(c.Domain, source))
+            .ToList();
     }
 
     public void Clear() => _cookies.Clear();

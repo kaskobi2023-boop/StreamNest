@@ -30,18 +30,13 @@ public sealed class CookieFileService
         }
     }
 
-    public async Task<string?> CreateAsync(IReadOnlyCollection<BrowserCookie>? cookies)
+    public async Task<string?> CreateAsync(IReadOnlyCollection<BrowserCookie>? cookies, VideoSource? source = null)
     {
         if (cookies is null || cookies.Count == 0)
             return null;
 
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var exportableCookies = cookies
-            .Where(c => !string.IsNullOrWhiteSpace(c.Name) &&
-                        !string.IsNullOrWhiteSpace(c.Value) &&
-                        c.IsSecure &&
-                        LoginSecurityPolicy.IsAllowedCookieDomain(c.Domain) &&
-                        (c.Expires <= 0 || c.Expires > now))
+            .Where(c => PlaybackCookiePolicy.CanExport(c) && (source is null || LoginSecurityPolicy.IsAllowedCookieDomain(c.Domain, source.Value)))
             .DistinctBy(c => $"{c.Name}\n{c.Domain}\n{c.Path}", StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (exportableCookies.Count == 0)
@@ -57,6 +52,12 @@ public sealed class CookieFileService
         foreach (var cookie in exportableCookies)
         {
             var domain = Sanitize(cookie.Domain);
+            // Strict host-scoping: RPlay authentication credentials must be strictly host-scoped to api.rplay.live
+            // without wildcard subdomains so cookie jars never match them against CDN hosts (e.g. s3.rplay.live, pb3.rplay.live).
+            if (source == VideoSource.RPlay && PlaybackCookiePolicy.IsRPlayAuthenticationCookie(cookie))
+            {
+                domain = "api.rplay.live";
+            }
             var httpOnlyDomain = cookie.IsHttpOnly ? $"#HttpOnly_{domain}" : domain;
             var includeSubdomains = domain.StartsWith('.') ? "TRUE" : "FALSE";
             var pathValue = string.IsNullOrWhiteSpace(cookie.Path) ? "/" : Sanitize(cookie.Path);
@@ -66,7 +67,9 @@ public sealed class CookieFileService
             builder.Append(httpOnlyDomain).Append('\t')
                 .Append(includeSubdomains).Append('\t')
                 .Append(pathValue).Append('\t')
-                .Append(cookie.IsSecure ? "TRUE" : "FALSE").Append('\t')
+                // The temporary copy is HTTPS-only, including SOOP tickets.
+                // This never changes the cookies in the user's WebView profile.
+                .Append("TRUE").Append('\t')
                 .Append(expires).Append('\t')
                 .Append(Sanitize(cookie.Name)).Append('\t')
                 .Append(Sanitize(cookie.Value)).Append('\n');

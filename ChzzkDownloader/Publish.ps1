@@ -123,7 +123,10 @@ try {
         "Tools\ffprobe.exe",
         "Tools\node.exe",
         "Tools\yt-dlp-plugins\streamnest\yt_dlp_plugins\extractor\streamnest_chzzk.py",
-        "Tools\yt-dlp-plugins\streamnest\yt_dlp_plugins\extractor\streamnest_packed.py"
+        "Tools\yt-dlp-plugins\streamnest\yt_dlp_plugins\extractor\streamnest_packed.py",
+        "Tools\yt-dlp-plugins\streamnest\yt_dlp_plugins\extractor\streamnest_browser.py",
+        "Tools\yt-dlp-plugins\streamnest\yt_dlp_plugins\extractor\streamnest_soop.py",
+        "Tools\yt-dlp-plugins\streamnest\yt_dlp_plugins\extractor\streamnest_rplay.py"
     )
     $requiredDirectories = @("Archive")
     foreach ($relativePath in $requiredFiles) {

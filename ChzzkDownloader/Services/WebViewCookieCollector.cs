@@ -5,6 +5,11 @@ namespace ChzzkDownloader.Services;
 
 public static class WebViewCookieCollector
 {
+    private static readonly string[] SoopOrigins =
+    [
+        "https://vod.sooplive.com/", "https://login.sooplive.com/",
+        "https://api.m.sooplive.com/", "https://live.sooplive.com/"
+    ];
     private static readonly string[] YouTubeOrigins =
     [
         "https://youtube.com/",
@@ -23,6 +28,13 @@ public static class WebViewCookieCollector
         "https://apis.naver.com/"
     ];
 
+    private static readonly string[] RPlayOrigins =
+    [
+        "https://rplay.live/",
+        "https://www.rplay.live/",
+        "https://api.rplay.live/"
+    ];
+
     private static readonly HashSet<string> YouTubeAuthenticationCookieNames = new(
         [
             "LOGIN_INFO",
@@ -37,7 +49,14 @@ public static class WebViewCookieCollector
         StringComparer.OrdinalIgnoreCase);
 
     public static IReadOnlyList<string> GetOrigins(VideoSource source) =>
-        source == VideoSource.YouTube ? YouTubeOrigins : ChzzkOrigins;
+        source switch
+        {
+            VideoSource.YouTube => YouTubeOrigins,
+            VideoSource.Chzzk => ChzzkOrigins,
+            VideoSource.Soop => SoopOrigins,
+            VideoSource.RPlay => RPlayOrigins,
+            _ => throw new ArgumentOutOfRangeException(nameof(source))
+        };
 
     public static bool HasAuthenticatedYouTubeSession(IEnumerable<BrowserCookie> cookies) =>
         cookies.Any(cookie => YouTubeAuthenticationCookieNames.Contains(cookie.Name));
@@ -54,18 +73,11 @@ public static class WebViewCookieCollector
             var cookies = await coreWebView.CookieManager.GetCookiesAsync(origin);
             foreach (var cookie in cookies)
             {
-                if (!cookie.IsSecure ||
-                    string.IsNullOrWhiteSpace(cookie.Name) ||
-                    string.IsNullOrWhiteSpace(cookie.Value) ||
-                    !LoginSecurityPolicy.IsAllowedCookieDomain(cookie.Domain) ||
-                    (!cookie.IsSession && cookie.Expires.ToUniversalTime() <= DateTime.UtcNow))
-                    continue;
-
                 var key = $"{cookie.Name}\n{cookie.Domain}\n{cookie.Path}";
                 var expires = cookie.IsSession
                     ? 0
                     : new DateTimeOffset(cookie.Expires.ToUniversalTime()).ToUnixTimeSeconds();
-                collected[key] = new BrowserCookie(
+                var candidate = new BrowserCookie(
                     cookie.Name,
                     cookie.Value,
                     cookie.Domain,
@@ -73,6 +85,7 @@ public static class WebViewCookieCollector
                     cookie.IsSecure,
                     cookie.IsHttpOnly,
                     expires);
+                if (PlaybackCookiePolicy.CanCollect(candidate, source)) collected[key] = candidate;
             }
         }
 

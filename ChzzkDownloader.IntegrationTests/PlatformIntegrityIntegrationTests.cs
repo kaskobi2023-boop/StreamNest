@@ -60,9 +60,23 @@ public sealed class PlatformIntegrityIntegrationTests
             // but the original selection expects a different height or length.
             var option = new VideoFormatOption { Height = expectedHeight, ExpectedDurationSeconds = expectedDuration,
                 ExpectsAudio = true, Selector = Quality(90).Selector };
-            await Assert.ThrowsAsync<YtDlpException>(() => service.DownloadAsync(server.Url,
-                Path.Combine(root, "downloads"), option, null, null, null, token));
-            Assert.Empty(Directory.GetFiles(Path.Combine(root, "downloads"), "*.mp4"));
+            if (expectedHeight != 90)
+            {
+                await Assert.ThrowsAsync<YtDlpException>(() => service.DownloadAsync(server.Url,
+                    Path.Combine(root, "downloads"), option, null, null, null, token));
+                Assert.Empty(Directory.GetFiles(Path.Combine(root, "downloads"), "*.mp4"));
+            }
+            else
+            {
+                IReadOnlyList<string> warnings = [];
+                var logs = new List<string>();
+                var path = await service.DownloadAsync(server.Url, Path.Combine(root, "downloads"), option,
+                    null, null, logs.Add, token, reported => warnings = reported);
+                Assert.True(File.Exists(path));
+                Assert.Single(warnings);
+                Assert.Contains(logs, line => line.StartsWith("[검사 경고]"));
+                Assert.DoesNotContain(logs, line => line.StartsWith("파일 검증 통과"));
+            }
         });
     }
 

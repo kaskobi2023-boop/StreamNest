@@ -23,7 +23,7 @@ public sealed class WebDownloadReliabilityTests
             {"streams":[{"codec_type":"video","height":180,"duration":"2"},
             {"codec_type":"audio","duration":"4"}],"format":{"duration":"4"}}
             """);
-        Assert.Throws<YtDlpException>(() => MediaVerificationService.ValidateMetadata(json.RootElement, 4, 180, true));
+        Assert.Contains("길이 차이", Assert.Single(MediaVerificationService.ValidateMetadata(json.RootElement, 4, 180, true)));
     }
 
     [Theory]
@@ -148,10 +148,10 @@ public sealed class WebDownloadReliabilityTests
 
     [Theory]
     [InlineData(4, 180, true, true)]
-    [InlineData(2, 180, true, false)]
+    [InlineData(2, 180, true, true)]
     [InlineData(4, 90, true, false)]
     [InlineData(4, 180, false, false)]
-    public void CompletionGateRejectsTruncationWrongQualityAndMissingAudio(double duration, int height, bool audio, bool valid)
+    public void CompletionGateWarnsOnLengthButRejectsWrongQualityAndMissingAudio(double duration, int height, bool audio, bool valid)
     {
         var streams = new List<object> { new { codec_type = "video", height } };
         if (audio) streams.Add(new { codec_type = "audio" });
@@ -163,10 +163,29 @@ public sealed class WebDownloadReliabilityTests
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"streams\":[{\"codec_type\":\"audio\"}],\"format\":{\"duration\":4}}")]
-    [InlineData("{\"streams\":[{\"codec_type\":\"video\"}],\"format\":{\"duration\":\"NaN\"}}")]
-    public void CompletionGateRejectsNonVideoOrUnknownDuration(string info)
+    public void CompletionGateRejectsNonVideo(string info)
     {
         using var json = JsonDocument.Parse(info);
         Assert.Throws<YtDlpException>(() => MediaVerificationService.ValidateMetadata(json.RootElement, null, null, false));
     }
+
+    [Fact]
+    public void UnknownDurationIsAnExplicitWarning()
+    {
+        using var json = JsonDocument.Parse("{\"streams\":[{\"codec_type\":\"video\"}],\"format\":{\"duration\":\"NaN\"}}");
+        Assert.Single(MediaVerificationService.ValidateMetadata(json.RootElement, null, null, false));
+    }
+
+    [Theory]
+    [InlineData(33105, 33125, false)]
+    [InlineData(33105, 33136, true)]
+    [InlineData(33105, 33074, true)]
+    [InlineData(10, 10.4, false)]
+    [InlineData(10, 8, true)]
+    public void LengthUsesThirtySecondCapAndWarnsInsteadOfFailing(double expected, double actual, bool warning)
+    {
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(new { streams = new[] { new { codec_type = "video" } }, format = new { duration = actual } }));
+        Assert.Equal(warning, MediaVerificationService.ValidateMetadata(json.RootElement, expected, null, false).Count > 0);
+    }
+
 }

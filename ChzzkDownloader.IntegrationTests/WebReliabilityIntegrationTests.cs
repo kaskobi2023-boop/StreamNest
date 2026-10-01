@@ -176,12 +176,12 @@ public sealed class WebReliabilityIntegrationTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task RuntimeVerifierRejectsTruncatedMedia_AndHonorsCancellation()
+    public async Task RuntimeVerifierWarnsOnLengthDifference_AndHonorsCancellation()
     {
         await WithFixture(async (server, service, root, token) =>
         {
             var source = Path.Combine(root, "hls", "high", "chunk000.bin");
-            await Assert.ThrowsAsync<YtDlpException>(() => MediaVerificationService.VerifyAsync(source, 4, 180, true, token));
+            Assert.NotEmpty(await MediaVerificationService.VerifyAsync(source, 4, 180, true, token));
             using var stopped = new CancellationTokenSource();
             stopped.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>

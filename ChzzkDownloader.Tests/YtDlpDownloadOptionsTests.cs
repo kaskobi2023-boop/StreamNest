@@ -36,7 +36,7 @@ public sealed class YtDlpDownloadOptionsTests
         Assert.Equal(1, args.Count(arg => arg == "--extractor-args"));
         Assert.Equal("2", Option(args, "--playlist-items"));
         Assert.Equal("id = 'entry-2' & !is_live & !has_drm", Option(args, "--match-filter"));
-        Assert.Equal("4", Option(args, "--concurrent-fragments"));
+        Assert.Equal("16", Option(args, "--concurrent-fragments"));
         Assert.Equal("mp4", Option(args, "--format"));
         Assert.Contains(@"C:\영상 폴더", args);
         Assert.Equal("chrome", Option(args, "--impersonate"));

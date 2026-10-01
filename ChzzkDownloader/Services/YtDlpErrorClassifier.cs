@@ -16,7 +16,7 @@ public enum YtDlpErrorKind
 public static class YtDlpErrorClassifier
 {
     private static readonly string[] AuthenticationMarkers =
-        ["login", "log in", "sign in", "adult", "age-restricted", "members only", "members-only", "available to members", "members of this channel", "confirm you're not a bot", "confirm you're not a robot", "authentication", "로그인", "인증"];
+        ["login", "log in", "sign in", "adult", "age-restricted", "members only", "members-only", "subscribers only", "subscriber-only", "available to members", "members of this channel", "confirm you're not a bot", "confirm you're not a robot", "authentication", "로그인", "인증"];
 
     private static readonly string[] StorageMarkers =
         ["no space left", "disk full", "not enough space", "[errno 13]", "[winerror 5]", "저장 공간", "공간이 부족"];
@@ -37,7 +37,7 @@ public static class YtDlpErrorClassifier
         ["timed out", "timeout", "connection", "network", "unable to download", "remote host", "연결 실패"];
 
     private static readonly string[] UnavailableMarkers =
-        ["private video", "video unavailable", "removed", "deleted", "not available", "비공개", "삭제"];
+        ["private video", "vod is private", "vod does not exist", "video unavailable", "removed", "deleted", "not available", "비공개", "삭제"];
 
     public static YtDlpErrorKind Classify(string message)
     {

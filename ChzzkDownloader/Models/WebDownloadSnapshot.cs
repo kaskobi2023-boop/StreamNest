@@ -10,4 +10,5 @@ internal sealed class WebDownloadSnapshot
     public double? DurationSeconds { get; init; }
     public bool ExpectsAudio { get; init; }
     public bool IncludePagePathInReferer { get; init; }
+    public bool BrowserCaptured { get; init; }
 }

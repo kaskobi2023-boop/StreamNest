@@ -13,6 +13,6 @@ public sealed class EnvironmentFactAttribute : FactAttribute
 
         if (requiredValueVariable is not null &&
             string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(requiredValueVariable)))
-            Skip = $"{requiredValueVariable}에 접근 권한이 있는 YouTube 영상 URL을 지정해주세요.";
+            Skip = $"{requiredValueVariable}에 접근 권한이 있는 시험 영상 URL을 지정해주세요.";
     }
 }

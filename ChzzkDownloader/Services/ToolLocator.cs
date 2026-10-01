@@ -18,6 +18,21 @@ public static class ToolLocator
         "ChzzkDownloader",
         "PartialDownloads");
 
+    public static void EnsureSoopPluginExists()
+    {
+        var path = Path.Combine(YtDlpPluginDirectory, "yt_dlp_plugins", "extractor", "streamnest_soop.py");
+        if (!File.Exists(path)) throw new FileNotFoundException("StreamNest SOOP 플러그인을 찾을 수 없습니다.", path);
+    }
+
+    public static string RPlayExtractorPluginPath => Path.Combine(
+        YtDlpPluginDirectory, "yt_dlp_plugins", "extractor", "streamnest_rplay.py");
+
+    public static void EnsureRPlayPluginExists()
+    {
+        if (!File.Exists(RPlayExtractorPluginPath))
+            throw new FileNotFoundException("웹 영상 처리 플러그인을 찾을 수 없습니다.", RPlayExtractorPluginPath);
+    }
+
     public static string PackedWebExtractorPluginPath => Path.Combine(
         YtDlpPluginDirectory, "yt_dlp_plugins", "extractor", "streamnest_packed.py");
 
@@ -25,6 +40,9 @@ public static class ToolLocator
     {
         if (!File.Exists(PackedWebExtractorPluginPath))
             throw new FileNotFoundException("StreamNest 일반 웹 영상 플러그인을 찾을 수 없습니다.", PackedWebExtractorPluginPath);
+        var browserPlugin = Path.Combine(YtDlpPluginDirectory, "yt_dlp_plugins", "extractor", "streamnest_browser.py");
+        if (!File.Exists(browserPlugin))
+            throw new FileNotFoundException("브라우저 영상 분석 플러그인을 찾을 수 없습니다.", browserPlugin);
     }
 
     public static void EnsureToolsExist()

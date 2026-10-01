@@ -42,12 +42,20 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = "StreamNest 다운로더 0.6.6";
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        var versionText = version is null ? "0.7.3" : $"{version.Major}.{version.Minor}.{version.Build}";
+        Title = $"StreamNest 다운로더 {versionText}";
         _uiReady = true;
         _ytDlpService = new YtDlpService(new CookieFileService());
+        _ytDlpService.BrowserCapture = async (url, token) =>
+        {
+            AppendLog("브라우저로 페이지를 열고 플레이어의 영상 요청을 확인합니다.");
+            ProgressText.Text = "브라우저 분석 중… 플레이어를 확인하고 있습니다.";
+            return await new WebBrowserCaptureService().CaptureAsync(url, token);
+        };
         _settings = _settingsService.Load();
         OutputFolderTextBox.Text = _settings.OutputFolder;
-        AppendLog("준비되었습니다. 치지직 또는 YouTube 영상 주소를 입력해주세요.");
+        AppendLog("준비되었습니다. 치지직·YouTube·SOOP 영상 주소를 입력해주세요.");
         Loaded += MainWindow_Loaded;
 
         var startupUrl = Environment.GetCommandLineArgs()
@@ -186,7 +194,7 @@ public partial class MainWindow : Window
         if (!VideoUrlService.TryParse(url, out var urlInfo))
         {
             ShowState("주소 확인 필요", "#FFB86B");
-            ProgressText.Text = "치지직 또는 YouTube 영상 주소를 입력해주세요.";
+            ProgressText.Text = "치지직 다시보기·클립, YouTube 또는 SOOP VOD·캐치 주소를 입력해주세요.";
             return;
         }
 
@@ -201,18 +209,20 @@ public partial class MainWindow : Window
         _currentVideo = null;
         QualityComboBox.ItemsSource = null;
         ThumbnailPresenter.Apply(ThumbnailImage, ThumbnailPlaceholder, null);
-        AppendLog($"영상 확인: {urlInfo.Source} / {urlInfo.VideoId}");
+        AppendLog($"영상 확인: {VideoUrlService.GetDisplayName(urlInfo.Source)} / {urlInfo.VideoId}");
         ProbeResult? probe = null;
 
         try
         {
-            probe = urlInfo.Source == VideoSource.Chzzk
+            // The public VOD probe only accepts numeric /video/ URLs. Clips use
+            // their own metadata/play-info endpoints in the extraction plugin.
+            probe = urlInfo.Source == VideoSource.Chzzk && ChzzkProbeService.TryGetVideoId(canonicalUrl, out _)
                 ? await _probeService.ProbeAsync(canonicalUrl, cancellationToken)
                 : new ProbeResult
                 {
                     IsValidUrl = true,
                     VideoId = urlInfo.VideoId,
-                    ChannelName = "YouTube"
+                    ChannelName = VideoUrlService.GetDisplayName(urlInfo.Source)
                 };
             DisplayProbe(probe);
 
@@ -239,6 +249,18 @@ public partial class MainWindow : Window
             }
 
             var cookiesForSource = GetCookies(urlInfo.Source);
+            if (urlInfo.Source == VideoSource.RPlay && !PlaybackCookiePolicy.HasRPlayLoginSession(cookiesForSource))
+            {
+                ProgressText.Text = "앱에 저장된 웹 영상 로그인 상태를 확인하는 중…";
+                var restored = await RPlaySessionService.RestoreAsync(this, cancellationToken);
+                if (restored.Count > 0)
+                {
+                    _siteCookies.Set(VideoSource.RPlay, restored);
+                    cookiesForSource = restored;
+                    LogoutButton.Visibility = Visibility.Visible;
+                    AppendLog("저장된 웹 영상 브라우저의 현재 계정 정보를 읽었습니다. 서버에서 영상 접근을 확인합니다.");
+                }
+            }
             var video = await _ytDlpService.AnalyzeAsync(canonicalUrl, cookiesForSource, cancellationToken);
             _analyzedUrl = canonicalUrl;
             _currentVideo = video;
@@ -254,7 +276,9 @@ public partial class MainWindow : Window
                 SessionStatusText.Text = "로그인 세션 확인됨";
                 SessionStatusText.Foreground = CreateBrush("#81E7AD");
             }
-            ProgressText.Text = $"{video.Formats.Count}개 화질을 찾았습니다. 화질을 선택하고 다운로드하세요.";
+            ProgressText.Text = video.PartCount > 1
+                ? $"VOD 전체 {video.PartCount}개 구간을 하나로 저장합니다. 공통 화질 {video.Formats.Count}개 중 선택해주세요."
+                : $"{video.Formats.Count}개 화질을 찾았습니다. 화질을 선택하고 다운로드하세요.";
             AppendLog($"분석 완료: {video.Title} / 화질 {video.Formats.Count}개");
         }
         catch (OperationCanceledException)
@@ -306,7 +330,18 @@ public partial class MainWindow : Window
             SessionStatusText.Text = "공개 영상 모드";
             SessionStatusText.Foreground = CreateBrush("#81E7AD");
             LogoutButton.Visibility = Visibility.Collapsed;
-            AppendLog("저장된 모든 서비스 세션과 메모리 쿠키를 삭제했습니다.");
+
+            if (loginWindow.SessionCleanupHadErrors)
+            {
+                ProgressText.Text = $"메모리 세션을 삭제했으나 일부 브라우저 프로필 정리에 실패했습니다: {loginWindow.SessionCleanupErrorMessage}";
+                AppendLog($"세션 삭제 경고: 메모리 쿠키는 삭제했으나 일부 브라우저 프로필 정리에 실패했습니다 ({loginWindow.SessionCleanupErrorMessage})");
+                LogExpander.IsExpanded = true;
+            }
+            else
+            {
+                ProgressText.Text = "저장된 모든 서비스 로그인 세션과 메모리 쿠키를 삭제했습니다.";
+                AppendLog("저장된 모든 서비스 세션과 메모리 쿠키를 삭제했습니다.");
+            }
         }
         if (!accepted)
         {
@@ -318,7 +353,9 @@ public partial class MainWindow : Window
         SessionStatusText.Text = "세션 가져옴 · 확인 중";
         SessionStatusText.Foreground = CreateBrush("#FFCE6B");
         LogoutButton.Visibility = Visibility.Visible;
-        AppendLog($"{urlInfo.Source} 로그인 세션을 가져왔습니다. ({loginWindow.Cookies.Count}개 쿠키, 값은 기록하지 않음)");
+        AppendLog(urlInfo.Source == VideoSource.RPlay
+            ? "웹 영상 브라우저의 현재 계정 정보를 읽었습니다. 서버에서 영상 접근을 확인합니다."
+            : $"{VideoUrlService.GetDisplayName(urlInfo.Source)} 로그인 세션을 가져왔습니다. ({loginWindow.Cookies.Count}개 쿠키, 값은 기록하지 않음)");
         await AnalyzeAsync();
     }
 
@@ -329,7 +366,7 @@ public partial class MainWindow : Window
 
         var confirmation = MessageBox.Show(
             this,
-            "로그아웃하고 앱에 연결된 치지직·YouTube 로그인 세션을 모두 삭제할까요?",
+            "로그아웃하고 앱에 연결된 치지직·YouTube·SOOP 로그인 세션을 모두 삭제할까요?",
             "로그아웃",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
@@ -339,27 +376,30 @@ public partial class MainWindow : Window
 
         SetBusy(true, "저장된 로그인 세션을 삭제하는 중…");
         CancelButton.IsEnabled = false;
+
+        // Invalidate in-memory session cookies and video presentation immediately
+        _siteCookies.Clear();
+        _currentVideo = null;
+        _currentSource = null;
+        QualityComboBox.ItemsSource = null;
+        QualityComboBox.IsEnabled = false;
+        DownloadButton.IsEnabled = false;
+        LoginButton.Visibility = Visibility.Collapsed;
+        SessionStatusText.Text = "공개 영상 모드";
+        SessionStatusText.Foreground = CreateBrush("#81E7AD");
+        LogoutButton.Visibility = Visibility.Collapsed;
+
         try
         {
             await WebViewSessionService.ClearStoredSessionAsync(this);
-            _siteCookies.Clear();
-            _currentVideo = null;
-            _currentSource = null;
-            QualityComboBox.ItemsSource = null;
-            QualityComboBox.IsEnabled = false;
-            DownloadButton.IsEnabled = false;
-            LoginButton.Visibility = Visibility.Collapsed;
-            SessionStatusText.Text = "공개 영상 모드";
-            SessionStatusText.Foreground = CreateBrush("#81E7AD");
-            LogoutButton.Visibility = Visibility.Collapsed;
             ShowState("로그아웃", "#B9C7D6");
             ProgressText.Text = "로그아웃했습니다. 저장된 모든 서비스 로그인 세션도 삭제했습니다.";
             AppendLog("로그아웃 완료: 메모리 쿠키와 저장된 WebView2 세션을 삭제했습니다.");
         }
         catch (Exception exception)
         {
-            ShowState("로그아웃 실패", "#FF7D91");
-            ProgressText.Text = $"저장된 로그인 세션을 삭제하지 못했습니다: {exception.Message}";
+            ShowState("로그아웃 완료 (일부 정리 실패)", "#FFCE6B");
+            ProgressText.Text = $"메모리 세션을 삭제했으나 일부 브라우저 프로필 정리에 실패했습니다: {exception.Message}";
             AppendLog(exception.ToString());
             LogExpander.IsExpanded = true;
         }
@@ -406,11 +446,17 @@ public partial class MainWindow : Window
 
         var progress = new Progress<DownloadProgressInfo>(info =>
         {
+            if (format.SoopPartIds.Count > 1 && info.Message != "완료")
+            {
+                ProgressText.Text = $"SOOP 전체 {format.SoopPartIds.Count}개 구간 처리 · {info.Message}";
+                return;
+            }
             if (info.Percent.HasValue)
                 DownloadProgressBar.Value = Math.Clamp(info.Percent.Value, 0, 100);
             ProgressText.Text = info.Message;
         });
         var cookiesForSource = GetCookies(_currentSource);
+        IReadOnlyList<string> downloadWarnings = [];
 
         try
         {
@@ -421,15 +467,21 @@ public partial class MainWindow : Window
                 cookiesForSource,
                 progress,
                 line => Dispatcher.InvokeAsync(() => AppendLog(line)),
-                _operationCancellation.Token);
+                _operationCancellation.Token,
+                warnings => downloadWarnings = warnings);
 
             DownloadProgressBar.Value = 100;
-            ShowState("완료", "#77E8A8");
+            ShowState(downloadWarnings.Count > 0 ? "저장 완료 · 주의사항 있음" : "완료", downloadWarnings.Count > 0 ? "#FFB86B" : "#77E8A8");
             _lastDownloadedFile = !string.IsNullOrWhiteSpace(finalPath) && File.Exists(finalPath) ? finalPath : null;
             OpenFolderButton.Content = "저장 폴더 열기";
             ProgressText.Text = _lastDownloadedFile is null
                 ? "다운로드와 영상 병합이 완료되었습니다."
                 : $"완료: {Path.GetFileName(_lastDownloadedFile)}";
+            if (downloadWarnings.Count > 0)
+            {
+                ProgressText.Text = "저장 완료 · " + downloadWarnings[0];
+                LogExpander.IsExpanded = true;
+            }
             AppendLog(string.IsNullOrWhiteSpace(finalPath) ? "다운로드 완료" : $"저장 완료: {finalPath}");
         }
         catch (OperationCanceledException)
@@ -623,6 +675,7 @@ public partial class MainWindow : Window
         WebVideoComboBox.ItemsSource = null;
         WebVideoListPanel.Visibility = Visibility.Collapsed;
         _lastDownloadedFile = null;
+        PlayLastButton.IsEnabled = false;
         QualityComboBox.ItemsSource = null;
         QualityComboBox.IsEnabled = false;
         DownloadButton.IsEnabled = false;
@@ -662,6 +715,9 @@ public partial class MainWindow : Window
         _isDownloading = busy && downloading;
         ModeTabs.IsEnabled = !busy;
         WebRefererPathCheckBox.IsEnabled = !busy;
+        WebBrowserCheckBox.IsEnabled = !busy;
+        ClearUrlButton.IsEnabled = !busy;
+        PlayLastButton.IsEnabled = !busy && _lastDownloadedFile is not null;
         WebVideoComboBox.IsEnabled = !busy;
         UrlTextBox.IsEnabled = !busy;
         PasteButton.IsEnabled = !busy;
@@ -701,6 +757,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(message))
             return;
+        message = message.Replace("[rplay:streamnest]", "[웹 영상]", StringComparison.Ordinal);
         var normalized = IsGeneralWeb ? WebVideoUrlService.RedactQueries(message.Trim()) : message.Trim();
         LogTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {normalized}{Environment.NewLine}");
         LogTextBox.ScrollToEnd();
@@ -713,14 +770,17 @@ public partial class MainWindow : Window
         _activeTabIndex = ModeTabs.SelectedIndex;
         UrlTextBox.Text = _tabUrls[_activeTabIndex];
         ResetVideoPresentation();
-        UrlKindText.Text = IsGeneralWeb ? "WEB / MP4 / HLS" : "CHZZK / YouTube";
-        UrlPlaceholderText.Text = IsGeneralWeb ? "공개 HTTPS 웹페이지 또는 영상 주소를 붙여넣으세요" : "치지직 또는 YouTube 영상 주소를 붙여넣으세요";
+        UrlKindText.Text = IsGeneralWeb ? "WEB / MP4 / HLS" : "CHZZK / YouTube / SOOP";
+        UrlPlaceholderText.Text = IsGeneralWeb ? "공개 HTTPS 웹페이지 또는 영상 주소를 붙여넣으세요" : "치지직·YouTube·SOOP 영상 주소를 붙여넣으세요";
         UrlTextBox.ToolTip = UrlPlaceholderText.Text;
-        System.Windows.Automation.AutomationProperties.SetName(UrlTextBox, IsGeneralWeb ? "일반 웹 영상 주소" : "치지직 또는 YouTube 영상 주소");
+        System.Windows.Automation.AutomationProperties.SetName(UrlTextBox, IsGeneralWeb ? "일반 웹 영상 주소" : "치지직·YouTube·SOOP 영상 주소");
         ModeDescriptionText.Text = IsGeneralWeb
-            ? "공개 웹 영상 · 스트림 재사용·화질 통합·파일 검증 · 일부 사이트는 지원되지 않습니다."
-            : "기존 치지직·YouTube 다운로드와 로그인 기능을 사용합니다.";
+            ? "공개 웹 영상 · 자동 브라우저 분석 · 화질 선택 · 빠른 MP4 저장"
+            : "치지직 클립·SOOP 캐치도 지원합니다. 제한 영상은 직접 로그인 후 확인합니다.";
         WebRefererPathCheckBox.Visibility = IsGeneralWeb ? Visibility.Visible : Visibility.Collapsed;
+        WebBrowserCheckBox.Visibility = IsGeneralWeb ? Visibility.Visible : Visibility.Collapsed;
+        ClearUrlButton.Visibility = IsGeneralWeb ? Visibility.Visible : Visibility.Collapsed;
+        PlayLastButton.Visibility = IsGeneralWeb ? Visibility.Visible : Visibility.Collapsed;
         SessionStatusText.Text = IsGeneralWeb ? "로그인 미사용" : _siteCookies.HasAny ? "저장된 세션 있음" : "공개 영상 모드";
         SessionStatusText.Foreground = CreateBrush("#81E7AD");
         LogoutButton.Visibility = !IsGeneralWeb && _siteCookies.HasAny ? Visibility.Visible : Visibility.Collapsed;
@@ -732,21 +792,20 @@ public partial class MainWindow : Window
         if (!WebVideoUrlService.TryParse(UrlTextBox.Text, out var uri))
         {
             ShowState("주소 확인 필요", "#FFB86B");
-            ProgressText.Text = "공개 HTTPS 웹페이지·MP4·HLS 주소를 입력해주세요. 치지직·YouTube는 전용 탭을 사용해주세요.";
+            ProgressText.Text = "공개 HTTPS 웹페이지·MP4·HLS 주소를 입력해주세요. 치지직·YouTube·SOOP는 전용 탭을 사용해주세요.";
             return;
         }
         ResetVideoPresentation();
         _operationCancellation?.Dispose();
         _operationCancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         SetBusy(true, "웹 영상 정보를 확인하는 중… (최대 20개)");
-        AppendLog("일반 웹 분석: 기존 영상과 Packer/HLS 후보를 함께 확인하고 다운로드 요청 정보를 보존합니다.");
-        AppendLog("브라우저 호환 전송: 페이지·HLS 재생목록·영상 조각에 Chrome 요청 방식 적용 (0.6.6)");
+        AppendLog("일반 웹 분석: 기본 분석 → 실패 시 브라우저 재생 요청 분석. 다운로드 요청 정보를 보존합니다.");
         if (WebRefererPathCheckBox.IsChecked == true)
             AppendLog("HLS 호환 요청: 다른 서버에 페이지 경로 전달 허용 (쿼리·로그인 쿠키 제외)");
         try
         {
             var items = await _ytDlpService.AnalyzeWebAsync(uri.AbsoluteUri, _operationCancellation.Token,
-                WebRefererPathCheckBox.IsChecked == true);
+                WebRefererPathCheckBox.IsChecked == true, WebBrowserCheckBox.IsChecked == true);
             _analyzedUrl = uri.AbsoluteUri;
             WebVideoComboBox.ItemsSource = items;
             WebVideoListPanel.Visibility = items.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -772,6 +831,27 @@ public partial class MainWindow : Window
     private void WebRefererPath_Changed(object sender, RoutedEventArgs e)
     {
         if (_uiReady && !_isBusy && IsGeneralWeb) ResetVideoPresentation();
+    }
+
+    private void ClearUrlButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isBusy) return;
+        UrlTextBox.Clear();
+        ResetVideoPresentation();
+        UrlTextBox.Focus();
+    }
+
+    private void ClearLogButton_Click(object sender, RoutedEventArgs e) => LogTextBox.Clear();
+
+    private void PlayLastButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastDownloadedFile is not { } path || !File.Exists(path))
+        {
+            ProgressText.Text = "이번에 저장한 파일을 찾을 수 없습니다.";
+            return;
+        }
+        try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+        catch (Exception) { ProgressText.Text = "파일을 재생하지 못했습니다. 저장 폴더에서 파일을 열어주세요."; }
     }
 
     private void WebVideoComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

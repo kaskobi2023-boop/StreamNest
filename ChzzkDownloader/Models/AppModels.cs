@@ -25,6 +25,7 @@ public sealed class ProbeResult
 
 public sealed class VideoInfo
 {
+    public int PartCount { get; init; } = 1;
     public string Id { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public string ChannelName { get; init; } = string.Empty;
@@ -35,12 +36,16 @@ public sealed class VideoInfo
 
 public sealed class VideoFormatOption
 {
+    // Nonempty only for a SOOP VOD. The extractor checks the complete ordered
+    // identity list again before downloading; multi-part VODs are concatenated.
+    public IReadOnlyList<string> SoopPartIds { get; init; } = [];
     internal WebDownloadSnapshot? WebSnapshot { get; init; }
     public bool IsGeneralWeb { get; init; }
     public int? WebPlaylistIndex { get; init; }
     public string? ExpectedVideoId { get; init; }
     public double? ExpectedDurationSeconds { get; init; }
     public bool ExpectsAudio { get; init; }
+    public bool IsAudioOnly { get; init; }
     public string Label { get; init; } = string.Empty;
     public int? Height { get; init; }
     public double? Fps { get; init; }
@@ -60,6 +65,7 @@ public sealed record WebVideoItem(VideoInfo Video, int? PlaylistIndex)
         Label = format.Label, Height = format.Height, Fps = format.Fps,
         EstimatedBytes = format.EstimatedBytes, Selector = format.Selector,
         ExpectedDurationSeconds = format.ExpectedDurationSeconds, ExpectsAudio = format.ExpectsAudio,
+        IsAudioOnly = format.IsAudioOnly,
         IsGeneralWeb = true, WebPlaylistIndex = PlaylistIndex, ExpectedVideoId = Video.Id, WebSnapshot = Snapshot
     };
 }

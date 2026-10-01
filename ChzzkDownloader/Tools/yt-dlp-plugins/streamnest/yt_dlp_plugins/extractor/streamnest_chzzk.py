@@ -2,7 +2,8 @@ import re
 import urllib.parse
 
 from yt_dlp.extractor.chzzk import CHZZKVideoIE
-from yt_dlp.utils import float_or_none, int_or_none, mimetype2ext, parse_codecs, update_url_query
+from yt_dlp.extractor.common import InfoExtractor
+from yt_dlp.utils import ExtractorError, float_or_none, int_or_none, mimetype2ext, parse_codecs, update_url_query
 
 
 class _StreamNestCHZZKVideoIE(CHZZKVideoIE, plugin_name='streamnest'):
@@ -248,3 +249,60 @@ class _StreamNestCHZZKVideoIE(CHZZKVideoIE, plugin_name='streamnest'):
             denominator_value = float_or_none(denominator)
             return numerator_value / denominator_value if numerator_value is not None and denominator_value else None
         return float_or_none(value)
+
+
+class StreamNestCHZZKClipIE(InfoExtractor):
+    """Use CHZZK's clip/embed play-info, preserving its access decisions."""
+    IE_NAME = 'chzzk:clip:streamnest'
+    _VALID_URL = r'https?://chzzk\.naver\.com/clips/(?P<id>[A-Za-z0-9_-]{6,80})(?:[/?#]|$)'
+    _TESTS = []
+
+    def _extract_mpd_formats_and_subtitles(self, *args, **kwargs):
+        # Reuse range-DASH support with the same downloader/cookie jar, without
+        # inheriting the VOD override's plugin identity or ie_key.
+        return _StreamNestCHZZKVideoIE(self._downloader)._extract_mpd_formats_and_subtitles(*args, **kwargs)
+
+    def _clip_api(self, path, clip_id, headers, **kwargs):
+        response = self._download_json(
+            f'https://api.chzzk.naver.com/service/v1/{path}', clip_id,
+            headers=headers, expected_status=(400, 401, 403, 404), **kwargs)
+        if response.get('code') == 401:
+            self.raise_login_required('Log in to CHZZK to view this clip', method='cookies')
+        content = response.get('content')
+        if response.get('code') != 200 or not isinstance(content, dict):
+            raise ExtractorError('CHZZK clip is unavailable, deleted or access-restricted', expected=True)
+        if content.get('adult') and content.get('userAdultStatus') in ('NOT_LOGIN_USER', 'NOT_ADULT'):
+            self.raise_login_required('This CHZZK clip requires an authorized adult account', method='cookies')
+        if content.get('blindType') not in (None, '', 'NONE'):
+            raise ExtractorError('CHZZK clip is not available for playback', expected=True)
+        return content
+
+    def _real_extract(self, url):
+        clip_id = self._match_id(url)
+        headers = {'Referer': f'https://chzzk.naver.com/clips/{clip_id}',
+                   'Origin': 'https://chzzk.naver.com'}
+        detail = self._clip_api(f'clips/{clip_id}/detail', clip_id, headers,
+            query={'optionalProperties': 'OWNER_CHANNEL'}, note='Downloading clip information')
+        playback = self._clip_api(f'play-info/clip/{clip_id}', clip_id, headers,
+            note='Downloading clip playback information')
+        # Never download a recommended neighbouring clip if the server changes identity.
+        if (detail.get('clipUID') != clip_id or playback.get('contentId') != clip_id or
+                not detail.get('videoId') or playback.get('videoId') != detail['videoId']):
+            raise ExtractorError('CHZZK clip identity changed; analyze the clip again', expected=True)
+        if not playback.get('inKey'):
+            self.raise_no_formats('CHZZK clip has no authorized playback key', expected=True, video_id=clip_id)
+            return {'id': clip_id, 'title': detail.get('clipTitle') or clip_id, 'formats': []}
+        formats, subtitles = self._extract_mpd_formats_and_subtitles(
+            f'https://apis.naver.com/neonplayer/vodplay/v1/playback/{playback["videoId"]}', clip_id,
+            # This endpoint defaults to a JSON-shaped MPD; explicitly request XML.
+            headers={**headers, 'Accept': 'application/dash+xml'},
+            query={'key': playback['inKey'], 'env': 'real', 'lc': 'ko_KR', 'cpl': 'ko_KR'}, mpd_id='clip')
+        for fmt in formats:
+            fmt['http_headers'] = headers.copy()
+        owner = playback.get('ownerChannel') or detail.get('optionalProperty', {}).get('ownerChannel') or {}
+        return {
+            'id': clip_id, 'title': detail.get('clipTitle') or playback.get('contentTitle') or clip_id,
+            'duration': float_or_none(detail.get('duration')), 'thumbnail': detail.get('thumbnailImageUrl'),
+            'channel': owner.get('channelName'), 'channel_id': owner.get('channelId'),
+            'formats': formats, 'subtitles': subtitles, 'http_headers': headers, 'is_live': False,
+        }

@@ -33,7 +33,7 @@ public sealed partial class YtDlpService
             "--continue",
             "--abort-on-unavailable-fragments",
             "--keep-fragments",
-            "--concurrent-fragments", (format.IsGeneralWeb ? 4 : ConcurrentFragmentCount).ToString(CultureInfo.InvariantCulture),
+            "--concurrent-fragments", (format.IsGeneralWeb ? 16 : ConcurrentFragmentCount).ToString(CultureInfo.InvariantCulture),
             "--retries", "10",
             "--fragment-retries", "10",
             "--file-access-retries", "3",
@@ -44,8 +44,6 @@ public sealed partial class YtDlpService
             "--paths", outputFolder,
             "--paths", $"temp:{partialDirectory}",
             "--output", "%(title).140B [%(id)s].%(ext)s",
-            "--merge-output-format", "mp4",
-            "--remux-video", "mp4",
             "--newline",
             "--progress",
             "--progress-delta", "0.25",
@@ -53,6 +51,26 @@ public sealed partial class YtDlpService
             "--print", "after_move:FINAL|%(filepath)s",
             "--format", format.Selector
         ];
+        if (format.IsAudioOnly)
+        {
+            arguments.AddRange(["--extract-audio", "--audio-format", "m4a", "--audio-quality", "0"]);
+        }
+        else
+        {
+            arguments.AddRange(["--merge-output-format", "mp4", "--remux-video", "mp4"]);
+        }
+        if (format.SoopPartIds.Count > 0)
+        {
+            arguments.AddRange(["--abort-on-error", "--extractor-args", $"soop:expected_ids={string.Join(',', format.SoopPartIds)}"]);
+            if (format.SoopPartIds.Count > 1)
+            {
+                var printIndex = arguments.IndexOf("--print");
+                arguments.RemoveRange(printIndex, 2);
+                // yt-dlp's playlist print runs BEFORE FFmpegConcatPP. Use an
+                // explicit staging filename and require it after successful exit.
+                arguments.AddRange(["--concat-playlist", "always", "--output", "pl_video:SOOP [%(id)s].%(ext)s"]);
+            }
+        }
         AddWebSelectionArguments(arguments, format, cached: infoJsonPath is not null);
         if (format.IsGeneralWeb)
         {

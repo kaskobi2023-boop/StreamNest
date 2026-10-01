@@ -14,11 +14,51 @@ public sealed partial class YtDlpService
     internal const int WebVideoLimit = 20;
 
     public async Task<IReadOnlyList<WebVideoItem>> AnalyzeWebAsync(string url, CancellationToken cancellationToken = default,
-        bool includePagePathInReferer = false)
+        bool includePagePathInReferer = false, bool preferBrowser = false)
     {
         var uri = await _validateWebUrl(url, cancellationToken);
         ToolLocator.EnsureToolsExist();
         ToolLocator.EnsureWebPluginExists();
+        var directMedia = new[] { ".mp4", ".m3u8", ".webm", ".mov" }
+            .Any(extension => uri.AbsolutePath.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+        if (preferBrowser && !directMedia && BrowserCapture is not null)
+            return await AnalyzeInBrowserAsync(uri.AbsoluteUri, includePagePathInReferer, cancellationToken);
+        using var directTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (BrowserCapture is not null) directTimeout.CancelAfter(TimeSpan.FromSeconds(40));
+        try { return await AnalyzeWebDirectAsync(uri, includePagePathInReferer, directTimeout.Token); }
+        catch (Exception ex) when (BrowserCapture is not null && !cancellationToken.IsCancellationRequested &&
+                                   ex is YtDlpException or JsonException or OperationCanceledException)
+        {
+            return await AnalyzeInBrowserAsync(uri.AbsoluteUri, includePagePathInReferer, cancellationToken);
+        }
+    }
+
+    internal Func<string, CancellationToken, Task<WebBrowserCapture>>? BrowserCapture { get; set; }
+
+    private async Task<IReadOnlyList<WebVideoItem>> AnalyzeInBrowserAsync(string url, bool includePath, CancellationToken token)
+    {
+        var capture = await BrowserCapture!(url, token);
+        var id = Guid.NewGuid().ToString("N");
+        var folder = Path.Combine(_partialDownloadsRoot, "BrowserAnalysis");
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, $"capture-{id}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(capture), new UTF8Encoding(false), token);
+            var result = await RunCaptureAsync(BuildWebAnalyzeArguments("streamnest-browser:" + id, includePath), token, path);
+            if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
+                throw new YtDlpException(DescribeWebAnalysisError(result.StandardError));
+            using var doc = JsonDocument.Parse(result.StandardOutput);
+            var videos = ParseWebVideos(doc.RootElement, url, includePath);
+            if (videos.Count == 0) throw new YtDlpException("브라우저에서 다운로드 가능한 영상을 찾지 못했습니다.");
+            return videos;
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    private static async Task<IReadOnlyList<WebVideoItem>> AnalyzeWebDirectAsync(Uri uri, bool includePagePathInReferer,
+        CancellationToken cancellationToken)
+    {
         var arguments = BuildWebAnalyzeArguments(uri.AbsoluteUri, includePagePathInReferer);
         var result = await RunCaptureAsync(arguments, cancellationToken);
         if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
@@ -26,7 +66,7 @@ public sealed partial class YtDlpService
         using var document = JsonDocument.Parse(result.StandardOutput);
         var videos = ParseWebVideos(document.RootElement, uri.AbsoluteUri, includePagePathInReferer);
         if (videos.Count == 0)
-            throw new YtDlpException(DescribeWebAnalysisError(result.StandardError));
+            throw new YtDlpException(DescribeWebMetadataError(document.RootElement, result.StandardError));
         return videos;
     }
 
@@ -54,7 +94,7 @@ public sealed partial class YtDlpService
             if (ReadBoolean(entry, "is_live") || ReadBoolean(entry, "has_drm") ||
                 ReadString(entry, "live_status") is "is_live" or "is_upcoming" ||
                 entry.TryGetProperty("entries", out _)) return;
-            var video = ParseVideoInfo(entry, allowUnknownWebVideo: true);
+            var video = ParseVideoInfo(entry, allowUnknownWebVideo: true, allowAudioOnly: false);
             if (video.Formats.Count > 0 && !string.IsNullOrWhiteSpace(video.Id))
                 result.Add(new WebVideoItem(video, index) {
                     Snapshot = pageUrl is null ? null : CreateWebSnapshot(entry, pageUrl, includePagePathInReferer)
@@ -86,7 +126,12 @@ public sealed partial class YtDlpService
         CancellationToken cancellationToken = default)
     {
         ToolLocator.EnsureToolsExist();
-        var cookiePath = await _cookieFileService.CreateAsync(cookies);
+        var isSoop = VideoUrlService.TryParse(url, out var platformUrl) && platformUrl.Source == VideoSource.Soop;
+        if (isSoop) ToolLocator.EnsureSoopPluginExists();
+        var isRPlay = VideoUrlService.TryParse(url, out platformUrl) && platformUrl.Source == VideoSource.RPlay;
+        if (isRPlay) ToolLocator.EnsureRPlayPluginExists();
+        var source = platformUrl?.Source;
+        var cookiePath = await _cookieFileService.CreateAsync(cookies, source);
         try
         {
             var arguments = new List<string>
@@ -110,15 +155,15 @@ public sealed partial class YtDlpService
 
             var result = await RunCaptureAsync(arguments, cancellationToken);
             if (result.ExitCode != 0)
-                throw new YtDlpException(CleanError(result.StandardError, cookiePath));
+                throw new YtDlpException(CleanError(result.StandardError, cookiePath, redactQueries: isSoop || isRPlay || source == VideoSource.Chzzk));
 
             using var document = JsonDocument.Parse(result.StandardOutput);
-            var video = ParseVideoInfo(document.RootElement);
+            var video = isSoop ? ParseSoopVideo(document.RootElement) : ParseVideoInfo(document.RootElement, allowUnknownWebVideo: false, allowAudioOnly: isRPlay);
             if (video.Formats.Count == 0)
             {
                 var detail = string.IsNullOrWhiteSpace(result.StandardError)
                     ? string.Empty
-                    : $"{Environment.NewLine}{CleanError(result.StandardError, cookiePath)}";
+                    : $"{Environment.NewLine}{CleanError(result.StandardError, cookiePath, redactQueries: isSoop || isRPlay || source == VideoSource.Chzzk)}";
                 throw new YtDlpException(
                     $"다운로드 가능한 영상 스트림을 찾지 못했습니다. yt-dlp와 YouTube JavaScript 런타임을 확인해 주세요.{detail}");
             }
@@ -139,7 +184,8 @@ public sealed partial class YtDlpService
         IReadOnlyCollection<BrowserCookie>? cookies,
         IProgress<DownloadProgressInfo>? progress,
         Action<string>? log,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<IReadOnlyList<string>>? verificationWarnings = null)
     {
         if (format.IsGeneralWeb)
         {
@@ -148,11 +194,16 @@ public sealed partial class YtDlpService
             cookies = []; // Never send existing platform sessions to general websites.
         }
         ToolLocator.EnsureToolsExist();
+        if (format.SoopPartIds.Count > 0) ToolLocator.EnsureSoopPluginExists();
+        var isRPlay = VideoUrlService.TryParse(url, out var checkUrl) && checkUrl.Source == VideoSource.RPlay;
+        if (isRPlay) ToolLocator.EnsureRPlayPluginExists();
+        var shouldRedact = format.IsGeneralWeb || format.SoopPartIds.Count > 0 || isRPlay || checkUrl?.Source == VideoSource.Chzzk;
         Directory.CreateDirectory(outputFolder);
         Directory.CreateDirectory(partialDirectory);
         var attemptDirectory = Path.Combine(partialDirectory, "active");
         Directory.CreateDirectory(attemptDirectory);
-        var cookiePath = await _cookieFileService.CreateAsync(cookies);
+        var downloadSource = checkUrl?.Source;
+        var cookiePath = await _cookieFileService.CreateAsync(cookies, downloadSource);
         string? infoJsonPath = null;
         try
         {
@@ -189,7 +240,7 @@ public sealed partial class YtDlpService
                 }
                 else
                 {
-                    log?.Invoke(format.IsGeneralWeb ? WebVideoUrlService.RedactQueries(line) : line);
+                    log?.Invoke(shouldRedact ? WebVideoUrlService.RedactQueries(line) : line);
                 }
             };
             process.ErrorDataReceived += (_, eventArgs) =>
@@ -201,9 +252,9 @@ public sealed partial class YtDlpService
                     return;
                 lock (errorBuilder)
                     errorBuilder.AppendLine(eventArgs.Data);
-                var safeLine = CleanError(line, cookiePath);
+                var safeLine = CleanError(line, cookiePath, redactQueries: shouldRedact);
                 if (!string.IsNullOrWhiteSpace(safeLine))
-                    log?.Invoke(format.IsGeneralWeb ? WebVideoUrlService.RedactQueries(safeLine) : safeLine);
+                    log?.Invoke(safeLine);
             };
 
             if (!process.Start())
@@ -232,8 +283,7 @@ public sealed partial class YtDlpService
                 // A failed concurrent-fragment checkpoint may have advanced
                 // beyond an unavailable fragment. Never resume that attempt.
                 QuarantineAttempt(partialDirectory, attemptDirectory);
-                throw new YtDlpException(format.IsGeneralWeb
-                    ? WebVideoUrlService.RedactQueries(CleanError(error, cookiePath)) : CleanError(error, cookiePath));
+                throw new YtDlpException(CleanError(error, cookiePath, redactQueries: shouldRedact));
             }
 
             string? completedPath;
@@ -243,7 +293,11 @@ public sealed partial class YtDlpService
             if (format.IsGeneralWeb && string.IsNullOrWhiteSpace(completedPath))
                 throw new YtDlpException("선택한 영상이 변경되었거나 다운로드되지 않았습니다. 페이지를 다시 분석해주세요.");
 
-            completedPath = ResolveCompletedPath(completedPath, engineOutputFolder, url, format.ExpectedVideoId);
+            // Only the deterministic concatenation output is accepted for a
+            // multipart VOD, never the last part or a filename-search fallback.
+            completedPath = format.SoopPartIds.Count > 1
+                ? Path.Combine(engineOutputFolder, $"SOOP [{format.ExpectedVideoId}].mp4")
+                : ResolveCompletedPath(completedPath, engineOutputFolder, url, format.ExpectedVideoId);
 
             if (string.IsNullOrWhiteSpace(completedPath))
                 throw new YtDlpException("다운로드 프로세스는 종료되었지만 최종 파일 경로를 확인하지 못했습니다. 임시 파일은 이어받기를 위해 보관했습니다.");
@@ -254,13 +308,17 @@ public sealed partial class YtDlpService
             if (new FileInfo(fullPath).Length <= 0)
                 throw new YtDlpException($"완료된 파일의 크기가 0바이트입니다: {fullPath}");
 
-            progress?.Report(new DownloadProgressInfo(null, string.Empty, string.Empty, "파일 무결성 검사 중…"));
+            progress?.Report(new DownloadProgressInfo(null, string.Empty, string.Empty, "파일 정보 확인 중…"));
+            IReadOnlyList<string> warnings;
             try
             {
                 MediaVerificationService.VerifyFragments(attemptDirectory);
-                await MediaVerificationService.VerifyAsync(fullPath,
-                    format.WebSnapshot?.DurationSeconds ?? format.ExpectedDurationSeconds,
-                    format.Height, format.WebSnapshot?.ExpectsAudio ?? format.ExpectsAudio, cancellationToken);
+                var expectation = format.IsAudioOnly
+                    ? MediaVerificationExpectation.ForAudio(format.WebSnapshot?.DurationSeconds ?? format.ExpectedDurationSeconds)
+                    : MediaVerificationExpectation.ForVideo(
+                        format.WebSnapshot?.DurationSeconds ?? format.ExpectedDurationSeconds,
+                        format.Height, format.WebSnapshot?.ExpectsAudio ?? format.ExpectsAudio);
+                warnings = await MediaVerificationService.VerifyAsync(fullPath, expectation, cancellationToken);
             }
             catch (YtDlpException)
             {
@@ -272,7 +330,11 @@ public sealed partial class YtDlpService
             }
             cancellationToken.ThrowIfCancellationRequested();
             fullPath = PublishVerifiedWebFile(fullPath, outputFolder, format.Height);
-            log?.Invoke("파일 검증 통과: 영상·음성 스트림, 길이, 전체 디코딩 확인");
+            foreach (var warning in warnings) log?.Invoke($"[검사 경고] {warning}");
+            log?.Invoke(warnings.Count == 0
+                ? "파일 검증 통과: 기본 검사 완료 (영상·음성·화질·길이 확인, 전체 디코딩 생략)"
+                : "주의사항과 함께 저장했습니다. 완전한 무결성을 확인한 결과는 아닙니다.");
+            verificationWarnings?.Invoke(warnings);
             if (infoJsonPath is not null) File.Delete(infoJsonPath);
             progress?.Report(new DownloadProgressInfo(100, string.Empty, string.Empty, "완료"));
             var cleanupResult = await DeletePartialDirectoryAsync(partialDirectory);
@@ -419,36 +481,39 @@ public sealed partial class YtDlpService
         }
     }
 
-    internal static VideoInfo ParseVideoInfo(JsonElement root, bool allowUnknownWebVideo = false)
+    internal static VideoInfo ParseVideoInfo(JsonElement root, bool allowUnknownWebVideo = false, bool allowAudioOnly = false)
     {
+        if (root.ValueKind != JsonValueKind.Object || ReadBoolean(root, "has_drm"))
+            return new VideoInfo();
         var duration = ReadDouble(root, "duration");
         var formats = new List<(int Height, double Fps, double Bitrate, long? FileSize)>();
         var hasAnyVideoFormat = false;
+        var hasTopLevelVideo = HasVideo(root);
         var expectsAudio = root.TryGetProperty("formats", out var audioFormats) && audioFormats.ValueKind == JsonValueKind.Array
-            ? audioFormats.EnumerateArray().Any(item => !ReadBoolean(item, "has_drm") &&
+            ? audioFormats.EnumerateArray().Any(item => item.ValueKind == JsonValueKind.Object && !ReadBoolean(item, "has_drm") &&
                 ReadString(item, "acodec") is { Length: > 0 } codec && codec != "none")
             : ReadString(root, "acodec") is { Length: > 0 } audio && audio != "none";
 
-        if (root.TryGetProperty("formats", out var formatArray) && formatArray.ValueKind == JsonValueKind.Array)
+        var hasFormatArray = root.TryGetProperty("formats", out var formatArray) && formatArray.ValueKind == JsonValueKind.Array;
+        // Direct media can describe its sole stream at the top level instead of
+        // a formats array. Treat it identically, including its known resolution.
+        var candidates = hasFormatArray ? formatArray.EnumerateArray().ToArray()
+            : allowUnknownWebVideo && Uri.TryCreate(ReadString(root, "url"), UriKind.Absolute, out var directUri) &&
+                directUri.Scheme is "http" or "https" ? new[] { root } : Array.Empty<JsonElement>();
+        foreach (var item in candidates)
         {
-            foreach (var item in formatArray.EnumerateArray())
-            {
-                if (ReadBoolean(item, "has_drm") || !(HasVideo(item) || allowUnknownWebVideo && IsUnknownWebVideo(item)))
-                    continue;
-                hasAnyVideoFormat = true;
-                var height = (int)(ReadDouble(item, "height") ?? 0);
-                if (height <= 0)
-                    continue;
-                var fps = ReadDouble(item, "fps") ?? 0;
-                var bitrate = ReadDouble(item, "tbr") ?? ReadDouble(item, "vbr") ?? 0;
-                var fileSize = ReadLong(item, "filesize") ?? ReadLong(item, "filesize_approx");
-                formats.Add((height, fps, bitrate, fileSize));
-            }
-        }
-
-        if (allowUnknownWebVideo && !hasAnyVideoFormat && !root.TryGetProperty("formats", out _) &&
-            !ReadBoolean(root, "has_drm") && IsUnknownWebVideo(root))
+            if (item.ValueKind != JsonValueKind.Object || ReadBoolean(item, "has_drm") ||
+                !(HasVideo(item) || allowUnknownWebVideo && IsUnknownWebVideo(item)))
+                continue;
             hasAnyVideoFormat = true;
+            var height = (int)(ReadDouble(item, "height") ?? 0);
+            if (height <= 0)
+                continue;
+            var fps = ReadDouble(item, "fps") ?? 0;
+            var bitrate = ReadDouble(item, "tbr") ?? ReadDouble(item, "vbr") ?? 0;
+            var fileSize = ReadLong(item, "filesize") ?? ReadLong(item, "filesize_approx");
+            formats.Add((height, fps, bitrate, fileSize));
+        }
 
         var options = formats
             .GroupBy(format => format.Height)
@@ -479,6 +544,14 @@ public sealed partial class YtDlpService
             })
             .ToList();
 
+        var hasExplicitAudioOnlyFormat = hasFormatArray
+            ? formatArray.EnumerateArray().Any(item => item.ValueKind == JsonValueKind.Object &&
+                !ReadBoolean(item, "has_drm") &&
+                ReadString(item, "vcodec") is "none" &&
+                ReadString(item, "acodec") is { Length: > 0 } ac && ac != "none" &&
+                (int)(ReadDouble(item, "height") ?? 0) <= 0)
+            : ReadString(root, "vcodec") is "none" && ReadString(root, "acodec") is { Length: > 0 } topAc && topAc != "none";
+
         if (options.Count == 0 && hasAnyVideoFormat)
         {
             options.Add(new VideoFormatOption
@@ -487,6 +560,18 @@ public sealed partial class YtDlpService
                 ExpectedDurationSeconds = duration,
                 ExpectsAudio = expectsAudio,
                 Selector = "bestvideo+bestaudio/best"
+            });
+        }
+        else if (options.Count == 0 && allowAudioOnly && expectsAudio && hasExplicitAudioOnlyFormat && !hasAnyVideoFormat && !hasTopLevelVideo &&
+                 (hasFormatArray || !string.IsNullOrWhiteSpace(ReadString(root, "extractor"))))
+        {
+            options.Add(new VideoFormatOption
+            {
+                Label = "오디오 최고 음질 (자동)",
+                ExpectedDurationSeconds = duration,
+                ExpectsAudio = true,
+                IsAudioOnly = true,
+                Selector = "bestaudio/best"
             });
         }
 
@@ -521,9 +606,11 @@ public sealed partial class YtDlpService
         }
     }
 
-    private static async Task<ProcessResult> RunCaptureAsync(List<string> arguments, CancellationToken cancellationToken)
+    private static async Task<ProcessResult> RunCaptureAsync(List<string> arguments, CancellationToken cancellationToken,
+        string? browserCapturePath = null)
     {
         var startInfo = CreateStartInfo(arguments);
+        if (browserCapturePath is not null) startInfo.Environment["STREAMNEST_BROWSER_CAPTURE"] = browserCapturePath;
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start())
             throw new InvalidOperationException("yt-dlp를 시작하지 못했습니다.");
@@ -656,11 +743,13 @@ public sealed partial class YtDlpService
         return $"{value:0.#} {units[unit]}";
     }
 
-    private static string CleanError(string error, string? cookiePath)
+    internal static string CleanError(string error, string? cookiePath, bool redactQueries = false)
     {
-        var cleaned = error;
+        var cleaned = error.Replace("[rplay:streamnest]", "[웹 영상]", StringComparison.Ordinal);
         if (!string.IsNullOrWhiteSpace(cookiePath))
             cleaned = cleaned.Replace(cookiePath, "[임시 쿠키 파일]", StringComparison.OrdinalIgnoreCase);
+        if (redactQueries)
+            cleaned = WebVideoUrlService.RedactQueries(cleaned);
         cleaned = AnsiRegex().Replace(cleaned, string.Empty).Trim();
         if (cleaned.Length > 2500)
             cleaned = cleaned[^2500..];
