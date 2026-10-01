@@ -17,9 +17,16 @@ public partial class LoginWindow : Window
     private bool _googleLoginRedirected;
     private bool _isCleaningUp;
     private readonly LoginNavigationCoordinator _navigationCoordinator = new();
+    private readonly CoreWebView2Environment? _providedEnvironment;
 
-    public LoginWindow(string targetUrl)
+    public LoginWindow(string targetUrl) : this(targetUrl, null)
     {
+    }
+
+    internal LoginWindow(string targetUrl, CoreWebView2Environment? environment, ResourceDictionary? resources = null)
+    {
+        _providedEnvironment = environment;
+        if (resources is not null) Resources = resources;
         InitializeComponent();
         if (!VideoUrlService.TryParse(targetUrl, out var videoUrl))
             throw new ArgumentException("지원하는 치지직·YouTube·SOOP 영상 주소가 아닙니다.", nameof(targetUrl));
@@ -58,7 +65,7 @@ public partial class LoginWindow : Window
     {
         try
         {
-            var environment = await WebViewSessionService.CreateEnvironmentAsync(Source);
+            var environment = _providedEnvironment ?? await WebViewSessionService.CreateEnvironmentAsync(Source);
             await LoginWebView.EnsureCoreWebView2Async(environment);
 
             LoginWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
@@ -215,6 +222,7 @@ public partial class LoginWindow : Window
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
+            var googleAuthenticationStarted = LoginSecurityPolicy.IsGoogleAuthenticationUri(e.Uri);
 
             core.NavigationStarting += (_, args) =>
             {
@@ -233,6 +241,25 @@ public partial class LoginWindow : Window
                 {
                     args.Cancel = true;
                     HandleBlockedNavigation(args.Uri, args.IsUserInitiated);
+                    return;
+                }
+
+                googleAuthenticationStarted |= LoginSecurityPolicy.IsGoogleAuthenticationUri(args.Uri);
+                if (Source == VideoSource.RPlay &&
+                    RPlayLoginPopupFlow.TryGetCallbackUri(args.Uri, googleAuthenticationStarted, out var callbackUri))
+                {
+                    // The website exchanges its own code on the original page. Do not
+                    // let the popup consume the one-use code or log its query string.
+                    args.Cancel = true;
+                    _ = Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (!_isCleaningUp && _initialized && IsVisible && LoginWebView?.CoreWebView2 != null)
+                        {
+                            LoginStatusText.Text = "계정 선택을 마쳤습니다. 사이트 로그인을 완료하는 중…";
+                            LoginWebView.CoreWebView2.Navigate(callbackUri.OriginalString);
+                        }
+                        CloseLoginPopup(popup);
+                    }));
                 }
             };
 
@@ -255,26 +282,12 @@ public partial class LoginWindow : Window
 
             core.WindowCloseRequested += (_, _) =>
             {
-                _ = Dispatcher.BeginInvoke(new Action(async () =>
+                _ = Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (!closed.Task.IsCompleted)
                         CloseLoginPopup(popup);
-
-                    if (Source == VideoSource.RPlay && LoginWebView?.CoreWebView2 != null)
-                    {
-                        try
-                        {
-                            if (LoginWebView.Source?.AbsoluteUri.Contains("/login", StringComparison.OrdinalIgnoreCase) == true)
-                            {
-                                LoginWebView.CoreWebView2.Navigate(_targetUrl);
-                            }
-                            else
-                            {
-                                LoginWebView.CoreWebView2.Reload();
-                            }
-                        }
-                        catch { }
-                    }
+                    // Google Identity Services can finish the opener callback after
+                    // window.close(). Reloading here aborts the site's login request.
                 }));
             };
 
