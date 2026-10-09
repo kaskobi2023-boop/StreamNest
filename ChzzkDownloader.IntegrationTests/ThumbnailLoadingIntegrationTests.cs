@@ -5,6 +5,7 @@ using ChzzkDownloader.Services;
 
 namespace ChzzkDownloader.IntegrationTests;
 
+[Collection(WebView2IntegrationCollection.Name)]
 public sealed class ThumbnailLoadingIntegrationTests
 {
     private static readonly byte[] OnePixelPng = Convert.FromBase64String(

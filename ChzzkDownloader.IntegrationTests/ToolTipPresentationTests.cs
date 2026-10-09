@@ -7,6 +7,7 @@ using System.Xml.Linq;
 
 namespace ChzzkDownloader.IntegrationTests;
 
+[Collection(WebView2IntegrationCollection.Name)]
 public sealed class ToolTipPresentationTests
 {
     [Theory]
