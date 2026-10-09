@@ -1,11 +1,26 @@
 # 단일 다운로드 기준 버전
 
+## 0.7.8 최종 보존 기준
+
+0.7.8을 단일 다운로드 기능의 최종 배포·복원 기준으로 사용합니다. 로그인 팝업 종료 시 원래 페이지가 새로고침되어 인증 결과 처리가 중단되는 문제를 수정했으며, 기존 클립·캐치·일반 웹 영상 다운로드와 빠른 완료 검사를 유지합니다.
+
+- 소스 복원 기준: Git 태그 `v0.7.8`.
+- 실행 복원 기준: GitHub Release `v0.7.8`의 `StreamNestDownloader-0.7.8-win-x64.zip`.
+- 실행 ZIP의 해시는 동봉된 `.sha256` 파일로 확인합니다.
+- 소스 ZIP: `StreamNest-0.7.8-GitHub-source.zip`. ZIP 내부의 `SOURCE-FILES.sha256`에 파일별 해시를 보존합니다.
+- 검증 기록: `StreamNest-0.7.8-verification.json`, `StreamNest-0.7.8-runtime-files.sha256`.
+- 로컬 보관: `releases/0.7.8`. 개인 설정·프로필·로그·다운로드 영상은 포함하지 않습니다.
+
+2026-10-10 실제 Google 계정 선택, 사이트 로그인, 세션 확인과 로그인 세션을 사용한 화질 5개 분석을 확인했습니다. 팝업 회귀 시험 3개와 단위 시험 424개, Python 플러그인 시험 72개도 통과했습니다. 전체 다운로드나 모든 사이트·계정 조합의 영구 호환성을 보장하는 검증은 아닙니다.
+
+후속 개발은 새 버전과 별도 브랜치에서 진행하며 `v0.7.8` 태그와 배포 파일을 교체하지 않습니다. 기존 설정·로그인 프로필을 보존하고, 다중 다운로드 기능이 저장 형식을 변경하면 별도 위치에 복사하여 이전 버전과의 호환성을 유지합니다.
+
 ## 0.7.7 보존 기준
 
-0.7.7은 다중 다운로드 기능으로 확장하기 전의 단일 다운로드 기준 버전입니다. 후속 버전의 변경은 새 버전·새 커밋에서 진행하며 `v0.7.7` 태그와 이미 게시한 0.7.7 실행 ZIP을 덮어쓰지 않습니다.
+0.7.7은 이전 단일 다운로드 기준 버전입니다. 2026-10-10 사용자 요청으로 공개 Release를 비공개 초안으로 전환하고 최신 배포를 0.7.8로 교체합니다. `v0.7.7` 태그와 로컬 보관 ZIP은 복원용으로 유지하고 덮어쓰지 않습니다.
 
 - 소스 복원 기준: Git 태그 `v0.7.7`.
-- 실행 복원 기준: GitHub Release `v0.7.7`의 `StreamNestDownloader-0.7.7-win-x64.zip`.
+- 실행 복원 기준: 로컬 `releases/0.7.7`의 `StreamNestDownloader-0.7.7-win-x64.zip`. 이전 공개 Release는 내려가므로 일반 사용자는 0.7.8을 받습니다.
 - 실행 ZIP SHA-256: `1d33e64cadc639f82bca4271e52c93cd57ee613d643bad90c9c9f08b513c3a7e`.
 - 별도 소스 ZIP: `StreamNest-0.7.7-GitHub-source.zip`. 파일별 해시는 ZIP 내부의 `SOURCE-FILES.sha256`에서 확인합니다.
 - 검증·도구 기록: Release 첨부 `StreamNest-0.7.7-verification.json`, `StreamNest-0.7.7-runtime-files.sha256`.
@@ -38,7 +53,7 @@ dotnet build .\ChzzkDownloader\ChzzkDownloader.csproj -c Release
 
 ## 로컬 보존
 
-작업 폴더의 `releases\0.7.7`에 실행 ZIP·소스 ZIP·파일별 해시·검증 기록을 별도 보관합니다. 이 경로는 Git에 추가하지 않으며, 소스와 배포 파일은 Git 태그와 GitHub Release로도 보존합니다.
+작업 폴더의 `releases\0.7.8`과 `releases\0.7.7`에 버전별 실행 ZIP·소스 ZIP·파일별 해시·검증 기록을 별도 보관합니다. 이 경로는 Git에 추가하지 않습니다. 0.7.8은 공개 GitHub Release로, 0.7.7은 기존 태그와 비공개 Release 초안으로도 보존합니다.
 
 개인 로그인 프로필·쿠키·설정·작업 로그·실제 다운로드 영상은 공개 소스 및 배포 ZIP에 포함하지 않습니다.
 

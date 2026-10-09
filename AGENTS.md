@@ -2,14 +2,15 @@
 
 ## Preserved single-download baseline
 
-- Version 0.7.7 is the preserved single-download baseline. Its source is Git tag `v0.7.7`, commit `5e5eda4`; its binaries are the matching GitHub Release assets and the local `releases/0.7.7` archive.
+- Version 0.7.8 is the final single-download baseline. Its source is Git tag `v0.7.8`; its binaries are the matching GitHub Release assets and the local `releases/0.7.8` archive.
 - Never move the tag, replace those assets, or rebuild over the archived files. Start application behavior changes in a new version and a separate branch/checkout. Documentation-only changes may be made without replacing the baseline.
-- The archived runtime ZIP has SHA-256 `1d33e64cadc639f82bca4271e52c93cd57ee613d643bad90c9c9f08b513c3a7e`. Use it for exact binary restoration. See `RELEASES.md` for source and verification details.
+- Use the archived runtime ZIP and its `.sha256` file for exact binary restoration. See `RELEASES.md` for source and verification details.
+- On 2026-10-10 the user explicitly requested withdrawing the public 0.7.7 release and replacing it with 0.7.8. Keep `v0.7.7` at commit `5e5eda4` and retain its local archive. Do not republish it without a user request.
 
 ## Future version compatibility
 
-- Preserve the 0.7.7 settings and browser profiles. The existing app stores data under LocalApplicationData in `ChzzkLocalDownloader` and `ChzzkDownloader`.
-- If queue/account-management work changes storage formats or profile behavior, use a separate storage location for the new feature/version. Migrate by copying; keep the original data usable by 0.7.7. Do not modify or delete the old profiles as part of a new-version migration.
+- Preserve the existing 0.7.7/0.7.8 settings and browser profiles. The app stores data under LocalApplicationData in `ChzzkLocalDownloader` and `ChzzkDownloader`.
+- If queue/account-management work changes storage formats or profile behavior, use a separate storage location for the new feature/version. Migrate by copying; keep the original data usable by 0.7.8. Do not modify or delete the old profiles as part of a new-version migration.
 - Keep login sessions separated by service. Credentials collected for one service must not be passed to another service or to general web downloads.
 - Preserve the fast completion check: do not reintroduce a whole-file FFmpeg decode in normal app downloads. Full decoding may be used in relevant short-media tests.
 - Keep existing internal web-video identifiers and extraction functions intact while preserving the generic user-facing labels.

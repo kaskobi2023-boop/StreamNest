@@ -16,7 +16,7 @@ if (Test-Path -LiteralPath $zipPath) { throw "Refusing to replace an existing so
 # Explicit project roots/extensions: never sweep the workspace, diagnostics,
 # old releases, profiles, settings or downloaded media into a public archive.
 $files = [Collections.Generic.List[IO.FileInfo]]::new()
-foreach ($name in @('README.md', 'CHANGELOG.md', 'RELEASES.md', 'LICENSE', '.gitignore', '.gitattributes', 'global.json', 'requirements-dev.txt', 'Setup-Tools.ps1', 'Package-Source.ps1')) {
+foreach ($name in @('README.md', 'CHANGELOG.md', 'RELEASES.md', 'AGENTS.md', 'LICENSE', '.gitignore', '.gitattributes', 'global.json', 'requirements-dev.txt', 'Setup-Tools.ps1', 'Package-Source.ps1')) {
     $files.Add((Get-Item -LiteralPath (Join-Path $sourceRoot $name)))
 }
 $allowedExtensions = @('.cs', '.xaml', '.csproj', '.ps1', '.py', '.js', '.md', '.txt', '.ico', '.png')
